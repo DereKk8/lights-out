@@ -9,7 +9,7 @@ Point any coding agent at an issue and at this repository, and the agent keeps w
 Trusted means one of two endings, and only these two:
 
 - **Merged:** a merge-ready pull request that passed blind review, real CI, and the author's own proof, then merged.
-- **Escalated:** a rare decision that only a human owner can make, stated so the owner can answer it in one read.
+- **Escalated:** a rare decision that only a human owner can make, stated so the owner can answer it in one read. Every product decision is one of these.
 
 The factory must work for every kind of agent: a local CLI agent, a cloud agent, or a pull-request bot.
 It must not depend on any one orchestrator, harness, or vendor.
@@ -30,6 +30,7 @@ It must not depend on any one orchestrator, harness, or vendor.
 12. **Self-improving.** When an agent finds a loophole in the factory, it improves the factory through a pull request to this repository, under the same loop.
 13. **Small and modular.** At most 10 skills at the start. Each rule has exactly one owner. Scripts and tool configs reference the skill that says how something is done; they never copy its text.
 14. **One review contract.** The zero-trust review contract moves into this repository and becomes its single owner. Consumers load it by exact commit and blob and map every requirement to a named mechanism. The contract changes in items 4, 8 and 9 are made through its own proposal path.
+15. **Humans own product decisions.** Every product decision stays with a human in the loop: what to build, for whom, and how it should behave. The factory does not decide product direction. Its main work is hardening (fixing defects, closing gaps, strengthening tests and proof) and gathering data that helps humans improve the product. When work needs a product choice, the factory escalates it with options and a recommendation, and does not pick one itself.
 
 ## 3. Principles carried in from current practice
 
