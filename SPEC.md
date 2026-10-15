@@ -22,7 +22,7 @@ In this specification, an issue is one task and its record, whatever channel the
 
 ### Task ownership and execution
 
-1. **Issue-driven work.** Tasks reach Lights Out through existing channels such as Linear, Discord, Slack, or another source. A team works when invoked; Lights Out does not need standing agents, issue watchers, PR-comment listeners, or bespoke feedback hooks. The owner invokes a team by giving one agent the task and the Lights Out entry point; that agent needs no other setup knowledge.
+1. **Issue-driven work.** Tasks reach Lights Out through existing channels such as Linear, Discord, Slack, or another source. A team works when invoked; Lights Out does not need standing agents, issue watchers, PR-comment listeners, or bespoke feedback hooks. The pilot integrates GitHub only; Discord is the next channel after it (D8). The owner invokes a team by giving one agent the task and the Lights Out entry point; that agent needs no other setup knowledge.
 2. **One accountable coordinator per issue.** A capable, strong-reasoning coordinator interprets intent, plans execution, allocates work, integrates results, and owns the outcome through verification. It is the coordinator that zero-trust-review names (ZT-ROLE-1) for the issue's changes. It delegates bounded work to suitable agents, uses cheaper models where adequate, and parallelizes only when doing so helps.
 3. **Outcome over artifact.** Finish by demonstrating that the original task's intended outcome has been met. A PR, merge, or code change is not inherently required.
 4. **Human vision, autonomous engineering.** The owner decides what to build, for whom, what behavior is desired, and which product trade-offs are acceptable. Agents choose architecture, implementation, remediation, and proof within that intent. Escalate only choices requiring product judgment, such as drift, a pivot, or a change to accepted behavior or priorities; present options, consequences, and a recommendation.
@@ -68,9 +68,11 @@ Work completion, review, and integration must remain correct when agents or impl
 
 Objective: Prove a complete issue-to-outcome loop with a single accountable coordinator and useful delegation where appropriate, using existing tools and authorities.
 
-Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. That repository's `main` branch requires a pull request and its `ci` check, and its CI jobs ran on October 15, 2026. If those jobs do not start, the pilot runs the same CI steps locally on the pinned revision and records their output; a check that did not run is never green. Because the target is Verilex itself, the record names the Verilex build that ran each proof, and a verdict from the changed build about its own change counts only with an observation that does not depend on that build (ZT-PROOF-6).
+Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. The repository is public, and its `main` branch requires a pull request and its `ci` check. Because the target is Verilex itself, the record names the Verilex build that ran each proof, and a verdict from the changed build about its own change counts only with an observation that does not depend on that build (ZT-PROOF-6).
 
 Pilot review: fresh sessions of the implementing model fill the zero-trust-review roles, with no author context (ZT-INDEP-2), and the report records the same-family reason that ZT-MODEL-1 asks for. Before the merge, the owner has the finished pull request checked by a separate, full zero-trust-review run outside Lights Out. The pilot needs no separate model credentials or spend.
+
+Pilot integration: GitHub only. Issue 55 and its pull request carry the task, its record, escalations, and the outcome. The team runs in the agent runtime that implements the pilot, and the entry point stays runtime-neutral. The pilot builds nothing for Discord.
 
 The pilot builds the smallest working form of:
 
@@ -104,12 +106,9 @@ Settled on October 15, 2026:
 
 - **D1. Pilot target.** The Verilex issue named in section 4.
 - **D7. Review-seat access and spend.** Fresh sessions of the implementing model review the pilot change, and an external zero-trust-review runs before the merge (section 4).
+- **D8. Initial integration.** GitHub only for the pilot (section 4), and Discord as the next channel after it (requirement 1).
 - **D10. Engineering-lead seat.** The coordinator for engineering stops, and the owner for product trade-offs (requirement 5).
 - **D11. Merge authority.** The coordinator, on PASS and green required checks for the same revision, with the owner's word for high-risk changes (section 3).
-
-Open, needed before the pilot:
-
-- **D8. Initial integration.** Where the pilot task, its record, escalations, and outcome live, and which agent runtime runs the team. Recommendation: issue 55 itself on GitHub carries the record, escalations, and outcome, because the code, the pull request, and the `ci` check are already there and need no new connection. The team runs in the agent runtime that implements the pilot, and the entry point stays runtime-neutral.
 
 Not needed for the pilot:
 
@@ -120,7 +119,7 @@ Not needed for the pilot:
 SPEC.md is the temporary contract for the pilot build, not a lasting document. After the demonstrations in section 4 have evidence, the build's last change does three things:
 
 1. It moves every lasting requirement to exactly one durable owner: README.md for the product behavior the owner sees, the entry point for what invoked teams do, AGENTS.md for how agents develop and maintain this repository, and executable checks with tests for every rule that section 3 says must be enforced. Other files point to that owner instead of repeating it.
-2. It records each settled decision from section 5 with the requirement it settles, and moves each unsettled decision to an issue on this repository.
+2. It records each settled decision from section 5 with the requirement it settles, and moves each unsettled decision to an issue on this repository, including whether Verilex joins Lights Out (section 4).
 3. It deletes SPEC.md and every reference to it, including the build-only parts of AGENTS.md and README.md.
 
 The change's description maps every requirement number to its new owner, so the owner can confirm that nothing was lost. Because the move could change a requirement, the owner reviews and merges that change. Section 4 is not lasting; its evidence stays in the pilot issue's record.
