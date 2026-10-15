@@ -1,6 +1,6 @@
 # Lights Out - Specification
 
-Status: Draft · October 15, 2026 · Design only; nothing is built yet. Section 5 lists the open decisions and which of them the owner settles before the pilot.
+Status: Draft · October 15, 2026 · Design only; nothing is built yet. Section 5 lists the open decisions and which of them the owner settles before the pilot. This file is temporary: the pilot build ends by moving its lasting requirements to durable owners and deleting it (section 6).
 
 This file defines what Lights Out must do. [AGENTS.md](AGENTS.md) guides the agents that build and maintain this repository.
 
@@ -105,3 +105,26 @@ Needed before the pilot:
 Not needed for the pilot:
 
 - **D12. Cross-issue coordination.** The lightest effective mechanism beyond overlap awareness (requirement 7). Recommendation: keep overlap awareness alone until a real cross-issue conflict shows a need. No extra leadership layer is authorized by default.
+
+## 6. Lifecycle of this file
+
+SPEC.md is the temporary contract for the pilot build, not a lasting document. After the demonstrations in section 4 have evidence, the build's last change does three things:
+
+1. It moves every lasting requirement to exactly one durable owner: README.md for the product behavior the owner sees, the entry point for what invoked teams do, AGENTS.md for how agents develop and maintain this repository, and executable checks with tests for every rule that section 3 says must be enforced. Other files point to that owner instead of repeating it.
+2. It records each settled decision from section 5 with the requirement it settles, and moves each unsettled decision to an issue on this repository.
+3. It deletes SPEC.md and every reference to it, including the build-only parts of AGENTS.md and README.md.
+
+The change's description maps every requirement number to its new owner, so the owner can confirm that nothing was lost. Because the move could change a requirement, the owner reviews and merges that change. Section 4 is not lasting; its evidence stays in the pilot issue's record.
+
+Durable owners for the requirements that most need to last:
+
+| Requirement | Durable owner | Enforced by |
+|---|---|---|
+| 21. Thin conductor | AGENTS.md | - |
+| 22. Go for the conductor | AGENTS.md | - |
+| 23. Loud failure | AGENTS.md | The dropped-error lint and its fixture |
+| 24. Strong typing | AGENTS.md | The decode lint and the decode package's tests |
+| 8 and 9. Review and proof authorities | The entry point | The checks of section 3 |
+| 4. Human-owned product decisions | README.md | - |
+| 17. Governed self-improvement | AGENTS.md | - |
+| Section 3. Enforcement boundary | AGENTS.md, which lists each check's command | The checks and their tests |
