@@ -1,6 +1,6 @@
 # Lights Out - Specification
 
-Status: Draft · October 15, 2026 · Design only; nothing is built yet. Section 5 lists the open decisions and which of them the owner settles before the pilot. This file is temporary: the pilot build ends by moving its lasting requirements to durable owners and deleting it (section 6).
+Status: Draft · October 15, 2026 · Design only; nothing is built yet. Section 5 records the owner's decisions and lists the ones still open. This file is temporary: the pilot build ends by moving its lasting requirements to durable owners and deleting it (section 6).
 
 This file defines what Lights Out must do. [AGENTS.md](AGENTS.md) guides the agents that build and maintain this repository.
 
@@ -26,7 +26,7 @@ In this specification, an issue is one task and its record, whatever channel the
 2. **One accountable coordinator per issue.** A capable, strong-reasoning coordinator interprets intent, plans execution, allocates work, integrates results, and owns the outcome through verification. It is the coordinator that zero-trust-review names (ZT-ROLE-1) for the issue's changes. It delegates bounded work to suitable agents, uses cheaper models where adequate, and parallelizes only when doing so helps.
 3. **Outcome over artifact.** Finish by demonstrating that the original task's intended outcome has been met. A PR, merge, or code change is not inherently required.
 4. **Human vision, autonomous engineering.** The owner decides what to build, for whom, what behavior is desired, and which product trade-offs are acceptable. Agents choose architecture, implementation, remediation, and proof within that intent. Escalate only choices requiring product judgment, such as drift, a pivot, or a change to accepted behavior or priorities; present options, consequences, and a recommendation.
-5. **Persistent engineering ownership.** Engineering difficulty, failed attempts, or a retry count do not by themselves justify human escalation. The coordinator changes strategy, seeks expertise, or delegates as needed. Unresolved technical work remains visibly owned; agents never claim success without proof or bypass safeguards to force progress. The exception is the fix-round bound in zero-trust-review (ZT-LOOP-3 and ZT-LOOP-6, with the engineering-lead seat set by D10). When that bound ends the fix loop, the owner's re-scope decision is a product decision under requirement 4.
+5. **Persistent engineering ownership.** Engineering difficulty, failed attempts, or a retry count do not by themselves justify human escalation. The coordinator changes strategy, seeks expertise, or delegates as needed. Unresolved technical work remains visibly owned; agents never claim success without proof or bypass safeguards to force progress. The exception is the fix-round bound in zero-trust-review (ZT-LOOP-3 and ZT-LOOP-6). The coordinator holds zero-trust-review's engineering-lead seat for engineering stops (ZT-LOOP-3, ZT-MODEL-3, ZT-TEAM-3, and sync drift). The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and makes the re-scope decision after ZT-LOOP-6, because both are product decisions under requirement 4.
 6. **Immediate defect response with preserved scope.** Every confirmed defect triggers corrective work upon discovery. A defect is confirmed when it is reproduced and zero-trust-review's proportionality rules (ZT-PROP-1, ZT-PROP-2) find a real trigger and harm; its response is the smallest one that meets the stated intent. The current team fixes in-scope findings; unrelated findings are immediately assigned to a separate accountable agent, team, or orchestrator, which the coordinator may start itself. The discovering team retains responsibility until a receiving owner accepts the work, without absorbing unrelated work into its own issue; a filed task that nobody has accepted is not a handoff. A defect in something Lights Out may not change goes to its owner as a report with the fix ready.
 7. **Independent issues, aware of overlap.** Issue teams retain separate owners and scopes. They discover relevant concurrent work, avoid duplicate effort, and resolve dependencies or conflicts before delivery. No fleet-wide coordinator is assumed.
 
@@ -60,11 +60,17 @@ In this specification, an issue is one task and its record, whatever channel the
 
 Requirements that can be checked must be enforced by executable mechanisms, not promises in prompts. The factory must reject unsupported acceptance (accepting a change without its required evidence), stale verdicts (a verdict for a revision other than the one being accepted), and unauthorized weakening of safeguards. The external authorities define their own detailed proof and review contracts; this specification defines how Lights Out uses them.
 
+The coordinator may merge a change when zero-trust-review reports PASS and every required check is green on the same revision, with the merge bound to that revision. A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's word.
+
 Work completion, review, and integration must remain correct when agents or implementations change. Introduce only the smallest mechanisms needed to make those guarantees real.
 
 ## 4. Pilot
 
 Objective: Prove a complete issue-to-outcome loop with a single accountable coordinator and useful delegation where appropriate, using existing tools and authorities.
+
+Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. That repository's `main` branch requires a pull request and its `ci` check, and its CI jobs ran on October 15, 2026. If those jobs do not start, the pilot runs the same CI steps locally on the pinned revision and records their output; a check that did not run is never green. Because the target is Verilex itself, the record names the Verilex build that ran each proof, and a verdict from the changed build about its own change counts only with an observation that does not depend on that build (ZT-PROOF-6).
+
+Pilot review: fresh sessions of the implementing model fill the zero-trust-review roles, with no author context (ZT-INDEP-2), and the report records the same-family reason that ZT-MODEL-1 asks for. Before the merge, the owner has the finished pull request checked by a separate, full zero-trust-review run outside Lights Out. The pilot needs no separate model credentials or spend.
 
 The pilot builds the smallest working form of:
 
@@ -77,7 +83,7 @@ The pilot's code follows requirements 21 to 24 from its first commit.
 
 The pilot must demonstrate, with evidence kept in the issue record:
 
-- One real owner-controlled issue (D1) taken from intent through independently supported resolution.
+- The pilot issue taken from intent through independently supported resolution.
 - A confirmed defect found and repaired, including separate ownership when outside the issue's scope. Where the real run meets no defect for one of these paths (in scope or out of scope), a seeded defect, labeled as seeded, exercises that path.
 - A seeded defect caught; unsupported or stale evidence rejected.
 - Required checks honored while an unrelated low-risk change avoids irrelevant full-suite work.
@@ -90,17 +96,20 @@ Verilex stays an external proof authority during the pilot (requirement 9). It m
 
 Not part of the pilot: permanent fleet supervision, standing worker pools, quota management, project-specific `verify-*` implementations, production release automation, self-improvement machinery for requirements 16 and 17 (friction met during the pilot is reported, not tooled), or replacing zero-trust-review or Verilex.
 
-## 5. Open decisions
+## 5. Decisions
 
-The owner settles each decision here, with the recommendation or another answer. The IDs continue the list in issue 1.
+The owner settles each decision here. A settled decision lives in the requirement or section it settles, and this list keeps the record. The IDs continue the list in issue 1.
 
-Needed before the pilot:
+Settled on October 15, 2026:
 
-- **D1. Pilot target.** The real issue and repository the pilot runs on. Recommendation: a small, real issue in an owner-controlled repository that already has a `verify-*` skill Verilex can run, on a forge that can refuse a merge without the required checks.
-- **D7. Review-seat access and spend.** Where the reviewer and verifier models come from, given that zero-trust-review requires a model family other than the author's where one is available (ZT-MODEL-1), and the pilot's spend limit. Recommendation: use an agent CLI of another strong-tier family that is already signed in where the team runs, set a pilot spend cap, and keep model credentials out of CI; CI checks the recorded verdict for the exact revision instead of running the reviewer.
-- **D8. Initial integration.** Which channel carries the task, its record, escalations, and the outcome, and which agent runtime and code host the pilot uses. Recommendation: the pilot repository's own issue tracker and forge, with an agent runtime the owner already uses; the entry point stays runtime-neutral.
-- **D10. Engineering-lead seat.** Who holds the engineering-lead role that zero-trust-review reports to (ZT-LOOP-3, ZT-MODEL-3, ZT-TEAM-3, ZT-VERDICT-2, and sync drift). Recommendation: the issue's coordinator for engineering stops, and the owner for accepting a serious unreproduced risk (ZT-VERDICT-2), because that is a product trade-off. The re-scope after ZT-LOOP-6 stays with the owner either way.
-- **D11. Merge authority.** Who may merge an accepted change. Recommendation: the coordinator, when zero-trust-review reports PASS and every required check is green on the same revision, with the merge bound to that revision; the owner's word for changes that touch security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries.
+- **D1. Pilot target.** The Verilex issue named in section 4.
+- **D7. Review-seat access and spend.** Fresh sessions of the implementing model review the pilot change, and an external zero-trust-review runs before the merge (section 4).
+- **D10. Engineering-lead seat.** The coordinator for engineering stops, and the owner for product trade-offs (requirement 5).
+- **D11. Merge authority.** The coordinator, on PASS and green required checks for the same revision, with the owner's word for high-risk changes (section 3).
+
+Open, needed before the pilot:
+
+- **D8. Initial integration.** Where the pilot task, its record, escalations, and outcome live, and which agent runtime runs the team. Recommendation: issue 55 itself on GitHub carries the record, escalations, and outcome, because the code, the pull request, and the `ci` check are already there and need no new connection. The team runs in the agent runtime that implements the pilot, and the entry point stays runtime-neutral.
 
 Not needed for the pilot:
 

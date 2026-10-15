@@ -7,7 +7,7 @@ This file is for agents that build and maintain this repository. It is not the r
 This section and SPEC.md exist only until the pilot build ends.
 
 - Read SPEC.md, the build's contract, before you propose or edit a change. Its sections 2 and 3 apply to work on this repository, and this file does not repeat them.
-- SPEC.md section 5 holds the decisions that are open for the owner. Change SPEC.md only to record a decision the owner made.
+- SPEC.md section 5 shows which owner decisions are settled and which are open. Change SPEC.md only to record a decision the owner made.
 - The build's last change follows SPEC.md section 6: it moves each lasting requirement to its durable owner, records the settled decisions, and deletes SPEC.md and this section.
 
 ## Current state
