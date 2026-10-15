@@ -33,7 +33,7 @@ In this specification, an issue is one task and its record, whatever channel the
 ### Verification and delivery
 
 8. **Existing review authority.** zero-trust-review remains the authoritative review policy in DereKk8/project-skills. Lights Out invokes and honors it; it does not move, duplicate, reinterpret, or weaken its requirements. Lights Out records which version it follows and maps each requirement ID to the mechanism that meets it, through that policy's own sync procedure (sync-zero-trust). A requirement it cannot meet is a gap reported through that procedure, never a local exception.
-9. **Existing product-proof authority.** Projects describe how to run and check their product - its surfaces, feature map, safe instances, and attack scenarios - in their `verify-*` skills. Verilex executes the applicable claims and verification words, records evidence, and manages its freshness. Zero-trust reviewers and verifiers call Verilex; it does not replace their roles. Lights Out consumes that proof rather than implementing a competing verifier. Section 4 states how Verilex may later become part of Lights Out.
+9. **Existing product-proof authority.** Projects describe how to run and check their product - its surfaces, feature map, safe instances, and attack scenarios - in their `verify-*` skills. The owner has deferred Verilex integration because it is not ready (D13). Do not use Verilex as a verifier during this build or pilot. Use regression tests and independent product-surface observations under zero-trust-review. Lights Out consumes their evidence rather than implementing a competing verifier. Any future Verilex integration needs the owner's decision.
 10. **Exact, applicable evidence.** Each change candidate is identified by its exact artifact or revision and is tied to the original intent, its target, the acceptance requirements that apply, and its evidence, so anyone can check it without trusting its author. Missing, inconclusive, stale, or inapplicable proof is not a pass. An agent's own assertions cannot substitute for evidence. Distinguish product failures from environment failures; neither an inconclusive run nor an environment error is proof.
 11. **Adaptive execution, unchanged standards.** Run the verification required for a change's actual impact and risk. Reuse valid evidence and avoid irrelevant full-suite runs; strengthen checking where warranted. Efficiency never excuses skipping required review, relaxing checks, or treating absent proof as green.
 12. **Continuation beyond a session.** The issue's current state, evidence, outstanding findings, and next action survive individual agents and sessions. Neither an agent hook nor a particular PR workflow is the sole keeper of progress. A fresh agent given only the issue and the entry point can recover that state and continue.
@@ -68,7 +68,7 @@ Work completion, review, and integration must remain correct when agents or impl
 
 Objective: Prove a complete issue-to-outcome loop with a single accountable coordinator and useful delegation where appropriate, using existing tools and authorities.
 
-Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. The repository is public, and its `main` branch requires a pull request and its `ci` check. Because the target is Verilex itself, the record names the Verilex build that ran each proof, and a verdict from the changed build about its own change counts only with an observation that does not depend on that build (ZT-PROOF-6).
+Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. The repository is public, and its `main` branch requires a pull request and its `ci` check. The pilot only patches the findings in that issue (D13). Verilex is the product under test, not the verifier. The record names the tested build and uses regression tests and independent CLI observations to prove the repairs (ZT-PROOF-6).
 
 Pilot review: fresh sessions of the implementing model fill the zero-trust-review roles, with no author context (ZT-INDEP-2), and the report records the same-family reason that ZT-MODEL-1 asks for. Before the merge, the owner has the finished pull request checked by a separate, full zero-trust-review run outside Lights Out. The pilot needs no separate model credentials or spend.
 
@@ -90,11 +90,11 @@ The pilot must demonstrate, with evidence kept in the issue record:
 - A seeded defect caught; unsupported or stale evidence rejected.
 - Required checks honored while an unrelated low-risk change avoids irrelevant full-suite work.
 - Persistent issue state and an inspectable result without relying on one live agent session: a fresh session resumes the issue from its record alone, and none of the sessions that run the issue is one that built Lights Out.
-- What Verilex contributed: the proof it ran, and what it caught, missed, or could not run.
+- The issue findings repaired, with failing-before and passing-after regression tests and independent CLI observations. Do not use Verilex as a verification engine (D13).
 
 Use existing PR checks or a next-step command if helpful; neither defines the lasting architecture. Do not build an orchestrator, verification engine, or new work-tracking platform merely to demonstrate the loop.
 
-Verilex stays an external proof authority during the pilot (requirement 9). It may become part of Lights Out after the running pilot demonstrates its real value. The owner makes that decision on the pilot's evidence; the pilot builds nothing for it.
+Verilex integration is deferred because the owner says it is not ready (D13). The pilot builds no Verilex proof adapter. Whether it later joins Lights Out remains an owner decision.
 
 Not part of the pilot: permanent fleet supervision, standing worker pools, quota management, project-specific `verify-*` implementations, production release automation, self-improvement machinery for requirements 16 and 17 (friction met during the pilot is reported, not tooled), or replacing zero-trust-review or Verilex.
 
@@ -109,6 +109,10 @@ Settled on October 15, 2026:
 - **D8. Initial integration.** GitHub only for the pilot (section 4), and Discord as the next channel after it (requirement 1).
 - **D10. Engineering-lead seat.** The coordinator for engineering stops, and the owner for product trade-offs (requirement 5).
 - **D11. Merge authority.** The coordinator, on PASS and green required checks for the same revision, with the owner's word for high-risk changes (section 3).
+
+Settled during the build:
+
+- **D13. Defer Verilex verification.** The owner instructed: "verilex is not yet ready do not use verilex for verification you should only patch the issue finding as the pilot test". The pilot patches issue 55 and proves the repairs without using Verilex as a verification engine.
 
 Not needed for the pilot:
 
