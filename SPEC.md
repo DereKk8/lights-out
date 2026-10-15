@@ -1,4 +1,4 @@
-# Software factory: specification so far
+# lights-out: specification so far
 
 Status: draft, Oct 15th, 2026. Nothing is built yet.
 Section 5 lists the decisions that must be settled before an agent starts building.
@@ -76,7 +76,7 @@ Each item has a recommendation. Settle these first; a builder agent must not gue
 | D3 | The form of the visual recap | One generated page per pull request, linked in the PR body: what changed, the proof output, the review verdict |
 | D4 | Which skills make the first 10 | Start from: review contract, verify-skill authoring, verify-skill maintenance, proof, attack, escalation, author prompts, self-improvement, rebase guard, and one entry skill |
 | D5 | Guard for self-changes: a factory change must pass a replay check against real past cases, and no change may loosen a gate without the owner's word | Adopt it |
-| D6 | Repository name | See the README |
+| D6 | Repository name | Settled Oct 15th, 2026: `lights-out` |
 | D7 | How the reviewer gets API credit in CI without exposing a secret in a public repository | A repository secret used only by a workflow that never runs on untrusted fork code |
 | D8 | How a cloud agent or pull-request bot enters the loop | Through the same PR checks and the next-step script; no local tooling required |
 | D9 | What proves the pilot works | One real issue taken from open to merged with every gate exercised, plus one seeded defect that the loop catches |
