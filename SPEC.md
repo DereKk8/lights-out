@@ -1,90 +1,138 @@
-# lights-out: specification so far
+# Lights Out - Specification
 
-Status: draft, Oct 15th, 2026. Nothing is built yet.
-Section 5 lists the decisions that must be settled before an agent starts building.
+Status: Draft · October 15, 2026 · Design only; nothing is built yet. Section 5 records the owner's decisions and lists the ones still open. This file is temporary: the pilot build ends by moving its lasting requirements to durable owners and deleting it (section 6).
 
-## 1. Goal
+This file defines what Lights Out must do. [AGENTS.md](AGENTS.md) guides the agents that build and maintain this repository.
 
-Point any coding agent at an issue and at this repository, and the agent keeps working until its output can be trusted.
-Trusted means one of two endings, and only these two:
+## 1. Purpose
 
-- **Merged:** a merge-ready pull request that passed independent review, real CI, and the author's own proof, then merged.
-- **Escalated:** a rare decision that only a human owner can make, stated so the owner can answer it in one read. Every product decision is one of these.
+Lights Out is the owner's personal autonomous software factory. Invoke an agent team on a task; it independently delivers a verified resolution or seeks a genuinely necessary product decision.
 
-The factory must work for every kind of agent the current varieties of agents, and be prepared for future agent concept evolution, here is the preliminary vision of the evolution 'agents will now become omnipresent entities, they will do work the same reliable way no matter where they run, and the mechanisms of firing work to them will become increasingly more convenient, intelligence and auditing is no longer going to be the bottleneck, trust will also get to that point, compute will be the single biggest bottle neck.
+The measure of success is correct, maintainable software - not code generated, PRs merged, agents occupied, or reports produced. A resolution may be a verified change, proof that existing behavior already meets the request, or a demonstrated no-change outcome.
 
-Lights out must not depend on any one orchestrator, harness, or vendor.
+Humans define product direction. Agents own the engineering needed to realize it. As agents improve, verification must improve with them; trust comes from evidence, never an agent's confidence. Compute, latency, and human attention are scarce resources.
 
-## 2. Settled decisions
+Lights Out is built for the owner's projects, not for commercial adoption. It must remain portable across agent models, runtimes, orchestrators, code hosts, and work-tracking systems.
 
-1. **Entry point.** `AGENTS.md` is the standard entry file a `SKILL.md` will work as a skill router see popular examples of skill routing skills . An agent that reads it learns the whole loop.
-2. **Prose for judgment, scripts for guarantees.** Rules that only exist as text break again and again in practice. Every fixed, checkable rule lives in a script, a CI check, or a forge setting that refuses a bad state. Prose covers only the judgment that a script cannot make.
-3. **The loop lives where every tool meets.** Some agents cannot be stopped from ending a turn, so the loop cannot live in an agent hook. It lives in the pull request: its required checks, and a script the agent re-runs to learn its next step.
-4. **The loop ends only in merged or escalated.** The agent keeps fixing while each round fixes a new, independent defect. It escalates when a defect of the same kind returns, or when two fixes for one symptom fail.
-5. **Fix findings at discovery.** A finding is fixed in the current change or in a separate pull request opened now. Nothing is filed for later, because a deferred finding has no owner. A finding in a dependency the team does not own is reported to its owner instead.
-6. **Proof through verify skills.** Each consumer project owns a `verify-*` skill: how to run the real product, a map of its features, and attack scenarios. The author proves the change on the artifact the head ships, with a script anyone can re-run. CI runs that proof script.
-7. **Independent interpretation and verification.** An independent reviewer first works out what the original intent requires from the issue (with the human intent in it) and saves that reading. It then investigates the implementation and its consequences: it may read the repo, run the product on safe instances, and use existing systems such as Verilex. It challenges whether the available evidence actually proves correctness. It never sees CI results, author claims, or the author summary. A separate verifier then tries to prove or disprove each suspicion, and attacks the change. The preliminary idea is that the reviewer runs on a dedicated API budget (about $100 of Claude API credit for the pilot) but it should be build in a way that is provider agnostic.
-8. **Model family.** The reviewer and verifier prefer a different model family from the author whenever one is available. When the chain cannot mix families, the same family may check, and the review still counts.
-9. **Attack lists are a floor, not a ceiling.** A project's attack scenarios are the minimum a checker must try. Every checker also invents and runs a few new attacks of its own and reports them separately. A new attack that finds a real bug joins the list.
-10. **Visual recap.** Each delivery ends with a visual recap a human can read in one glance. (Its form is open, see section 5.)
-11. **Public repository.** The factory is public, so CI has no billing limit and anyone can verify it. Private material stays out: client and product names, hosts, credential setup, business strategy, and any orchestrator vocabulary.
-12. **Self-improving.** When an agent finds a loophole in the factory, it improves the factory through a pull request to this repository, under the same loop.
-13. **Small and modular.** At most 10 skills at the start. Each rule has exactly one owner. Scripts and tool configs reference the skill that says how something is done; they never copy its text.
-14. **One review contract.** The zero-trust review contract moves into this repository and becomes its single owner. Consumers load it by exact commit and blob and map every requirement to a named mechanism. The contract changes in items 4, 8 and 9 are made through its own proposal path.
-15. **Humans own product decisions.** Every product decision stays with a human in the loop: what to build, for whom, and how it should behave. The factory does not decide product direction. Its main work is hardening (fixing defects, closing gaps, strengthening tests and proof) and gathering data that helps humans improve the product. When work needs a product choice, the factory escalates in the easiest and most convenient way of reaching the human owner no matter where he is. it with options and a recommendation, and does not pick one itself.
+Lights Out is a thin conductor. Its own code calls the tools that already own each job and never re-implements them (requirement 21).
 
-## 3. Principles carried in from current practice
+## 2. Required behavior
 
-These come from a survey of the working system that ships trusted software today. Each one is a candidate for a script, not only text.
+In this specification, an issue is one task and its record, whatever channel the task came from.
 
-- The intent is the requester's own words from the task source. The author's summary never amends it.
-- Nothing the author says, and no green proxy such as "it compiles", counts as proof.
-- The reviewed head is pinned from the forge, and the merge is bound to that exact head.
-- Review staffing scales with the changed-line count, tests and docs included.
-- NEVER weaken a check to get green: no skipped tests, loosened thresholds, retries, or dropped required checks.
-- A test calls the code the way users do and asserts a literal observed result. A test that greps source is not evidence.
-- Work in small units that each end in a passing check. Order commits so the sequence proves itself: failing test, then fix.
-- ALWAYS Reproduce a bug the way the user hits it before fixing it.
-- Real CI runs on every change. An empty or unobserved check list is not green.
-- Drive and clean up only the instances this run started, and keep the evidence through cleanup.
-- Decide alone when a step is reversible and in scope. Stop for irreversible high stakes actions.
-- An escalation states the requirement, the smallest compliant option, the consequences, and a recommendation.
-- Base every branch on a fresh base, and check for overlapping work before starting and before ready.
-- A repeated mistake is made impossible, not discouraged, and the new check must catch a real past case.
-- Three verdicts: pass, fail, inconclusive. An environment failure is never a product failure.
-- Checks are proportionate: state the realistic trigger and harm before demanding a fix.
-- No agent co-author and no orchestration trace in project artifacts.
-- Cost is judged per task done: strong models where judgment matters, cheap ones for clerical work.
-- Instruction text states the intent and the proof of done, and is tested on the target models before it is trusted.
+### Task ownership and execution
 
-## 4. Reusable parts to port (generic form only)
+1. **Issue-driven work.** Tasks reach Lights Out through existing channels such as Linear, Discord, Slack, or another source. A team works when invoked; Lights Out does not need standing agents, issue watchers, PR-comment listeners, or bespoke feedback hooks. The pilot integrates GitHub only; Discord is the next channel after it (D8). The owner invokes a team by giving one agent the task and the Lights Out entry point; that agent needs no other setup knowledge.
+2. **One accountable coordinator per issue.** A capable, strong-reasoning coordinator interprets intent, plans execution, allocates work, integrates results, and owns the outcome through verification. It is the coordinator that zero-trust-review names (ZT-ROLE-1) for the issue's changes. It delegates bounded work to suitable agents, uses cheaper models where adequate, and parallelizes only when doing so helps.
+3. **Outcome over artifact.** Finish by demonstrating that the original task's intended outcome has been met. A PR, merge, or code change is not inherently required.
+4. **Human vision, autonomous engineering.** The owner decides what to build, for whom, what behavior is desired, and which product trade-offs are acceptable. Agents choose architecture, implementation, remediation, and proof within that intent. Escalate only choices requiring product judgment, such as drift, a pivot, or a change to accepted behavior or priorities; present options, consequences, and a recommendation.
+5. **Persistent engineering ownership.** Engineering difficulty, failed attempts, or a retry count do not by themselves justify human escalation. The coordinator changes strategy, seeks expertise, or delegates as needed. Unresolved technical work remains visibly owned; agents never claim success without proof or bypass safeguards to force progress. The exception is the fix-round bound in zero-trust-review (ZT-LOOP-3 and ZT-LOOP-6). The coordinator holds zero-trust-review's engineering-lead seat for engineering stops (ZT-LOOP-3, ZT-MODEL-3, ZT-TEAM-3, and sync drift). The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and makes the re-scope decision after ZT-LOOP-6, because both are product decisions under requirement 4.
+6. **Immediate defect response with preserved scope.** Every confirmed defect triggers corrective work upon discovery. A defect is confirmed when it is reproduced and zero-trust-review's proportionality rules (ZT-PROP-1, ZT-PROP-2) find a real trigger and harm; its response is the smallest one that meets the stated intent. The current team fixes in-scope findings; unrelated findings are immediately assigned to a separate accountable agent, team, or orchestrator, which the coordinator may start itself. The discovering team retains responsibility until a receiving owner accepts the work, without absorbing unrelated work into its own issue; a filed task that nobody has accepted is not a handoff. A defect in something Lights Out may not change goes to its owner as a report with the fix ready.
+7. **Independent issues, aware of overlap.** Issue teams retain separate owners and scopes. They discover relevant concurrent work, avoid duplicate effort, and resolve dependencies or conflicts before delivery. No fleet-wide coordinator is assumed.
 
-- A rebase guard that classifies a branch as clean, stale, duplicated, or in real conflict by patch identity.
-- A linker that lets every agent runtime find a project's `verify-*` (pstacks's concept) skill.
-- An author-prompts checker that puts the author's reasons on the pull request in self-contained form.
-- A self-improvement ledger: no change without a recorded proposal, rejections remembered, rollback available.
-- A skill-layout checker that requires a version bump on every change.
-- A merge check that refuses unless a passing review verdict exists for the live head. A missing review record must refuse too, not only a failed one.
-- Forge rulesets for required checks, which are free on public repositories.
+### Verification and delivery
 
-## 5. Decisions to settle before an agent builds
+8. **Existing review authority.** zero-trust-review remains the authoritative review policy in DereKk8/project-skills. Lights Out invokes and honors it; it does not move, duplicate, reinterpret, or weaken its requirements. Lights Out records which version it follows and maps each requirement ID to the mechanism that meets it, through that policy's own sync procedure (sync-zero-trust). A requirement it cannot meet is a gap reported through that procedure, never a local exception.
+9. **Existing product-proof authority.** Projects describe how to run and check their product - its surfaces, feature map, safe instances, and attack scenarios - in their `verify-*` skills. Verilex executes the applicable claims and verification words, records evidence, and manages its freshness. Zero-trust reviewers and verifiers call Verilex; it does not replace their roles. Lights Out consumes that proof rather than implementing a competing verifier. Section 4 states how Verilex may later become part of Lights Out.
+10. **Exact, applicable evidence.** Each change candidate is identified by its exact artifact or revision and is tied to the original intent, its target, the acceptance requirements that apply, and its evidence, so anyone can check it without trusting its author. Missing, inconclusive, stale, or inapplicable proof is not a pass. An agent's own assertions cannot substitute for evidence. Distinguish product failures from environment failures; neither an inconclusive run nor an environment error is proof.
+11. **Adaptive execution, unchanged standards.** Run the verification required for a change's actual impact and risk. Reuse valid evidence and avoid irrelevant full-suite runs; strengthen checking where warranted. Efficiency never excuses skipping required review, relaxing checks, or treating absent proof as green.
+12. **Continuation beyond a session.** The issue's current state, evidence, outstanding findings, and next action survive individual agents and sessions. Neither an agent hook nor a particular PR workflow is the sole keeper of progress. A fresh agent given only the issue and the entry point can recover that state and continue.
+13. **Portable integration.** Use the agent, forge, CI, and work-tracking mechanisms already available. Agents may build the smallest dependable missing connection. A pull request is one possible carrier for a change candidate, not the factory's universal interface.
+14. **Maintainability is part of done.** Prefer understandable, resilient software, focused changes, reproducible verification, and repairable failures over agent throughput. Reproduce behavioral defects through the affected user-facing path when possible. Repeated engineering mistakes should lead to lasting prevention.
+15. **Feedback becomes new work.** Product feedback after delivery enters as fresh, independently owned tasks through existing channels. The original team is not required to remain alive or monitor the software indefinitely. Delivery and recovery can use existing systems; Lights Out need not own deployments.
 
-Each item has a recommendation. Settle these first; a builder agent must not guess them.
+### Improvement and communication
 
-| # | Decision | Recommendation |
-|---|----------|----------------|
-| D1 | The first issue and repository the pilot ships end to end | A small, real issue in a repository the owner controls, with a working verify skill |
-| D2 | Who fixes the reviewer's findings: the same author agent or a fresh agent | The same author, for continuity; a fresh agent only after a repeated-theme escalation |
-| D3 | The form of the visual recap | One generated page per pull request, linked in the PR body: what changed, the proof output, the review verdict |
-| D4 | Which skills make the first 10 | Start from: review contract, verify-skill authoring, verify-skill maintenance, proof, attack, escalation, author prompts, self-improvement, rebase guard, and one entry skill |
-| D5 | Guard for self-changes: a factory change must pass a replay check against real past cases, and no change may loosen a gate without the owner's word | Adopt it |
-| D6 | Repository name | Settled Oct 15th, 2026: `lights-out` |
-| D7 | How the reviewer gets API credit in CI without exposing a secret in a public repository | A repository secret used only by a workflow that never runs on untrusted fork code |
-| D8 | How a cloud agent or pull-request bot enters the loop | Through the same PR checks and the next-step script; no local tooling required |
-| D9 | What proves the pilot works | One real issue taken from open to merged with every gate exercised, plus one seeded defect that the loop catches |
+16. **Friction drives improvement.** Identify durable, reproducible obstacles, such as wasted retries, unclear instructions, broken tools, unnecessary work, and recurring failures. Route actionable friction to separately owned improvements without expanding the delivering issue. Prefer removing causes to documenting workarounds.
+17. **Governed self-improvement.** Agents autonomously maintain and improve engineering mechanisms, with observable benefit and preservation of existing guarantees. Modifications that change product intent, approved trade-offs, or authority boundaries require the owner's decision. External review and verification authorities remain external unless the owner decides otherwise.
+18. **Adaptive modularity.** Reuse working capabilities before adding new ones. Add, combine, or retire skills and integrations based on demonstrated value, with clear ownership and no duplicated authority. No arbitrary skill-count limit.
+19. **Human-attention discipline.** Every completed task leaves an inspectable outcome and its evidence. Proactively surface material results, risks, and product choices; adapt format and depth to significance. No mandatory visual recap for routine changes. Product-facing artifacts need not expose internal agent orchestration, and commits carry no agent co-author line.
+20. **Public mechanics, private context.** The reusable factory may be public. Project secrets, credentials, private hosts, client details, and business strategy do not belong in its public artifacts. Do not assume that the economics of public CI carry over to private projects.
 
-## 6. Out of scope for the pilot
+### Thin conductor
 
-- Fleet supervision, multi-agent scheduling, and quota management.
-- Any project-specific verify skill. Those live in each consumer project.
-- Production deploys and releases.
+21. **Thin conductor.** Lights Out's own code is a thin conductor. It calls the tools that already own each job - the code host, the work tracker, agent CLIs, zero-trust-review, Verilex, and `verify-*` skills - and passes typed records between them. Judgment stays with the coordinator and its agents (requirement 2). The conductor never owns source hosting, branches, pull requests, or merge state; task tracking or notification; model execution or agent sessions; review policy; proof execution or evidence freshness; how a product is run and checked; or deployments. When a needed job has no owner, the conductor adds the smallest dependable connection (requirement 13), not a replacement.
+22. **Go for the conductor.** The conductor's scripts and wrappers are written in Go, chosen for loud failure, structured data in and out, tests through the public entry point, and agent maintainability. Each conductor command takes and returns structured data, not prose.
+23. **Loud failure.** A conductor command that meets an error stops, exits with a failure status, and names the error; it never drops an error or reports success after one. Because Go lets a careless `_` drop an error, a lint that rejects dropped and unchecked errors is a required check from the first commit that adds Go code.
+24. **Strong typing.** Every record that crosses a boundary - issue input, tool output, evidence record, and verdict - is a typed value, validated where it enters. A boundary record is never an untyped map or loosely parsed text, and a record that fails validation is an error under requirement 23.
+
+## 3. Enforcement boundary
+
+Requirements that can be checked must be enforced by executable mechanisms, not promises in prompts. The factory must reject unsupported acceptance (accepting a change without its required evidence), stale verdicts (a verdict for a revision other than the one being accepted), and unauthorized weakening of safeguards. The external authorities define their own detailed proof and review contracts; this specification defines how Lights Out uses them.
+
+The coordinator may merge a change when zero-trust-review reports PASS and every required check is green on the same revision, with the merge bound to that revision. A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's word.
+
+Work completion, review, and integration must remain correct when agents or implementations change. Introduce only the smallest mechanisms needed to make those guarantees real.
+
+## 4. Pilot
+
+Objective: Prove a complete issue-to-outcome loop with a single accountable coordinator and useful delegation where appropriate, using existing tools and authorities.
+
+Pilot target: [DereKk8/verilex issue 55](https://github.com/DereKk8/verilex/issues/55), a real issue in the owner's Verilex repository, which has its own `verify-verilex` skill. The repository is public, and its `main` branch requires a pull request and its `ci` check. Because the target is Verilex itself, the record names the Verilex build that ran each proof, and a verdict from the changed build about its own change counts only with an observation that does not depend on that build (ZT-PROOF-6).
+
+Pilot review: fresh sessions of the implementing model fill the zero-trust-review roles, with no author context (ZT-INDEP-2), and the report records the same-family reason that ZT-MODEL-1 asks for. Before the merge, the owner has the finished pull request checked by a separate, full zero-trust-review run outside Lights Out. The pilot needs no separate model credentials or spend.
+
+Pilot integration: GitHub only. Issue 55 and its pull request carry the task, its record, escalations, and the outcome. The team runs in the agent runtime that implements the pilot, and the entry point stays runtime-neutral. The pilot builds nothing for Discord.
+
+The pilot builds the smallest working form of:
+
+- the entry point an agent follows to coordinate an issue (requirements 1 and 2);
+- the issue record that holds state, evidence, findings, and next action outside any session (requirement 12);
+- the executable checks of section 3, bound to the exact revision (requirement 10);
+- the outcome report each completed issue leaves (requirement 19).
+
+The pilot's code follows requirements 21 to 24 from its first commit.
+
+The pilot must demonstrate, with evidence kept in the issue record:
+
+- The pilot issue taken from intent through independently supported resolution.
+- A confirmed defect found and repaired, including separate ownership when outside the issue's scope. Where the real run meets no defect for one of these paths (in scope or out of scope), a seeded defect, labeled as seeded, exercises that path.
+- A seeded defect caught; unsupported or stale evidence rejected.
+- Required checks honored while an unrelated low-risk change avoids irrelevant full-suite work.
+- Persistent issue state and an inspectable result without relying on one live agent session: a fresh session resumes the issue from its record alone, and none of the sessions that run the issue is one that built Lights Out.
+- What Verilex contributed: the proof it ran, and what it caught, missed, or could not run.
+
+Use existing PR checks or a next-step command if helpful; neither defines the lasting architecture. Do not build an orchestrator, verification engine, or new work-tracking platform merely to demonstrate the loop.
+
+Verilex stays an external proof authority during the pilot (requirement 9). It may become part of Lights Out after the running pilot demonstrates its real value. The owner makes that decision on the pilot's evidence; the pilot builds nothing for it.
+
+Not part of the pilot: permanent fleet supervision, standing worker pools, quota management, project-specific `verify-*` implementations, production release automation, self-improvement machinery for requirements 16 and 17 (friction met during the pilot is reported, not tooled), or replacing zero-trust-review or Verilex.
+
+## 5. Decisions
+
+The owner settles each decision here. A settled decision lives in the requirement or section it settles, and this list keeps the record. The IDs continue the list in issue 1.
+
+Settled on October 15, 2026:
+
+- **D1. Pilot target.** The Verilex issue named in section 4.
+- **D7. Review-seat access and spend.** Fresh sessions of the implementing model review the pilot change, and an external zero-trust-review runs before the merge (section 4).
+- **D8. Initial integration.** GitHub only for the pilot (section 4), and Discord as the next channel after it (requirement 1).
+- **D10. Engineering-lead seat.** The coordinator for engineering stops, and the owner for product trade-offs (requirement 5).
+- **D11. Merge authority.** The coordinator, on PASS and green required checks for the same revision, with the owner's word for high-risk changes (section 3).
+
+Not needed for the pilot:
+
+- **D12. Cross-issue coordination.** The lightest effective mechanism beyond overlap awareness (requirement 7). Recommendation: keep overlap awareness alone until a real cross-issue conflict shows a need. No extra leadership layer is authorized by default.
+
+## 6. Lifecycle of this file
+
+SPEC.md is the temporary contract for the pilot build, not a lasting document. After the demonstrations in section 4 have evidence, the build's last change does three things:
+
+1. It moves every lasting requirement to exactly one durable owner: README.md for the product behavior the owner sees, the entry point for what invoked teams do, AGENTS.md for how agents develop and maintain this repository, and executable checks with tests for every rule that section 3 says must be enforced. Other files point to that owner instead of repeating it.
+2. It records each settled decision from section 5 with the requirement it settles, and moves each unsettled decision to an issue on this repository, including whether Verilex joins Lights Out (section 4).
+3. It deletes SPEC.md and every reference to it, including the build-only parts of AGENTS.md and README.md.
+
+The change's description maps every requirement number to its new owner, so the owner can confirm that nothing was lost. Because the move could change a requirement, the owner reviews and merges that change. Section 4 is not lasting; its evidence stays in the pilot issue's record.
+
+Durable owners for the requirements that most need to last:
+
+| Requirement | Durable owner | Enforced by |
+|---|---|---|
+| 21. Thin conductor | AGENTS.md | - |
+| 22. Go for the conductor | AGENTS.md | - |
+| 23. Loud failure | AGENTS.md | The dropped-error lint and its fixture |
+| 24. Strong typing | AGENTS.md | The decode lint and the decode package's tests |
+| 8 and 9. Review and proof authorities | The entry point | The checks of section 3 |
+| 4. Human-owned product decisions | README.md | - |
+| 17. Governed self-improvement | AGENTS.md | - |
+| Section 3. Enforcement boundary | AGENTS.md, which lists each check's command | The checks and their tests |
