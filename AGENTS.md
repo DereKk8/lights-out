@@ -24,6 +24,16 @@ None yet.
 4. Work on this repository is a task like any other, so SPEC.md sections 2 and 3 apply to it. Until Lights Out can run its own loop, run zero-trust-review on your change directly (requirement 8).
 5. Update the instructions, tests, and docs that your change makes wrong, in the same change.
 
+## Go code
+
+SPEC.md requirements 22 to 24 set the rules for the conductor's Go code. The first change that adds Go code meets them this way, and lists the new commands under Commands:
+
+- `golangci-lint` with a `version: "2"` config that sets the `errcheck` settings `check-blank: true` and `check-type-assertions: true`. With them, `_ = f()`, `_, _ = f()`, an unchecked call, and an unchecked type assertion all fail the lint. The default settings miss `_ = f()`.
+- A `forbidigo` rule with `analyze-types: true` and the pattern `^json\.(Unmarshal|NewDecoder)$`, excluded only for the one package that decodes boundary records. No other code decodes JSON.
+- In that package, each record is a named struct that is validated before it is returned. Records that Lights Out defines are decoded with `DisallowUnknownFields`. Tool output is requested as JSON with only the fields the conductor needs.
+- A fixture that the lint must reject, with one violation per line, because golangci-lint reports only one issue per line by default. CI checks that the lint still rejects it, so a config change that weakens the guard fails.
+- A required CI job that runs the lint and `go test ./...` on every change.
+
 ## Writing
 
 Write in plain English: short sentences, one idea each, active voice, and common words. Use "-", never an em dash.

@@ -14,6 +14,8 @@ Humans define product direction. Agents own the engineering needed to realize it
 
 Lights Out is built for the owner's projects, not for commercial adoption. It must remain portable across agent models, runtimes, orchestrators, code hosts, and work-tracking systems.
 
+Lights Out is a thin conductor. Its own code calls the tools that already own each job and never re-implements them (requirement 21).
+
 ## 2. Required behavior
 
 In this specification, an issue is one task and its record, whatever channel the task came from.
@@ -47,6 +49,13 @@ In this specification, an issue is one task and its record, whatever channel the
 19. **Human-attention discipline.** Every completed task leaves an inspectable outcome and its evidence. Proactively surface material results, risks, and product choices; adapt format and depth to significance. No mandatory visual recap for routine changes. Product-facing artifacts need not expose internal agent orchestration, and commits carry no agent co-author line.
 20. **Public mechanics, private context.** The reusable factory may be public. Project secrets, credentials, private hosts, client details, and business strategy do not belong in its public artifacts. Do not assume that the economics of public CI carry over to private projects.
 
+### Thin conductor
+
+21. **Thin conductor.** Lights Out's own code is a thin conductor. It calls the tools that already own each job - the code host, the work tracker, agent CLIs, zero-trust-review, Verilex, and `verify-*` skills - and passes typed records between them. Judgment stays with the coordinator and its agents (requirement 2). The conductor never owns source hosting, branches, pull requests, or merge state; task tracking or notification; model execution or agent sessions; review policy; proof execution or evidence freshness; how a product is run and checked; or deployments. When a needed job has no owner, the conductor adds the smallest dependable connection (requirement 13), not a replacement.
+22. **Go for the conductor.** The conductor's scripts and wrappers are written in Go, chosen for loud failure, structured data in and out, tests through the public entry point, and agent maintainability. Each conductor command takes and returns structured data, not prose.
+23. **Loud failure.** A conductor command that meets an error stops, exits with a failure status, and names the error; it never drops an error or reports success after one. Because Go lets a careless `_` drop an error, a lint that rejects dropped and unchecked errors is a required check from the first commit that adds Go code.
+24. **Strong typing.** Every record that crosses a boundary - issue input, tool output, evidence record, and verdict - is a typed value, validated where it enters. A boundary record is never an untyped map or loosely parsed text, and a record that fails validation is an error under requirement 23.
+
 ## 3. Enforcement boundary
 
 Requirements that can be checked must be enforced by executable mechanisms, not promises in prompts. The factory must reject unsupported acceptance (accepting a change without its required evidence), stale verdicts (a verdict for a revision other than the one being accepted), and unauthorized weakening of safeguards. The external authorities define their own detailed proof and review contracts; this specification defines how Lights Out uses them.
@@ -63,6 +72,8 @@ The pilot builds the smallest working form of:
 - the issue record that holds state, evidence, findings, and next action outside any session (requirement 12);
 - the executable checks of section 3, bound to the exact revision (requirement 10);
 - the outcome report each completed issue leaves (requirement 19).
+
+The pilot's code follows requirements 21 to 24 from its first commit.
 
 The pilot must demonstrate, with evidence kept in the issue record:
 
