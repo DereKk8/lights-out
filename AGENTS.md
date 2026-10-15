@@ -1,6 +1,6 @@
 # Lights Out - Agent contributor guide
 
-This file is for agents that build and maintain this repository. It is not the runtime contract for the teams Lights Out runs on other projects; that contract is the Lights Out entry point, listed under Commands once it exists.
+This file is for agents that build and maintain this repository.
 
 ## During the pilot build
 
@@ -10,14 +10,6 @@ This section and SPEC.md exist only until the pilot build ends.
 - SPEC.md section 5 shows which owner decisions are settled and which are open. Change SPEC.md only to record a decision the owner made.
 - The build's last change follows SPEC.md section 6: it moves each lasting requirement to its durable owner, records the settled decisions, and deletes SPEC.md and this section.
 
-## Current state
-
-No code exists yet; the repository holds documents only. When you add code, tooling, or skills, list each real entry point and verification command under Commands in the same change. Never list a command that does not exist.
-
-## Commands
-
-None yet.
-
 ## Authority
 
 - The owner merges changes to this repository.
@@ -25,11 +17,10 @@ None yet.
 
 ## How to work
 
-1. Inspect the repository, its instructions, its checks, and related open work before you edit. Start from a fresh `main`.
-2. Change the smallest coherent surface: no speculative infrastructure, duplicated rule, or incidental edit.
-3. Work in small units that each end in a passing check. Test a capability through its public entry point, and assert the observed result.
-4. Every change to this repository gets a zero-trust-review before it merges: through Lights Out's own loop once that loop exists, and directly until then.
-5. Update the instructions, tests, and docs that your change makes wrong, in the same change.
+1. Change the smallest coherent surface: no speculative infrastructure, duplicated rule, or incidental edit.
+2. Work in small units that each end in a passing check. Test a capability through its public entry point, and assert the observed result.
+3. Every change to this repository gets a zero-trust-review before it merges: through Lights Out's own loop once that loop exists, and directly until then.
+4. Update the instructions, tests, and docs that your change makes wrong, in the same change.
 
 ## Go code
 
@@ -43,12 +34,10 @@ Go code in this repository keeps these guards. The first change that adds Go cod
 
 ## Writing
 
-Write in plain English: short sentences, one idea each, active voice, and common words. Use "-", never an em dash.
-
-## Before you report done
-
-State what changed, what you verified (the command and the observed result), what is still unverified, and every finding with its fix or the owner who accepted it.
+For user facing documentation, write in plain English: short sentences, one idea each, active voice, and common words. Use "-", never an em dash.
 
 ## Maintaining this file
 
-Keep this file short. Point to real commands and files instead of repeating them.
+- Keep this file short. 
+- Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+- Prefer rewriting or pruning existing entries over appending new ones.
