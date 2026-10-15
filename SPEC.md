@@ -11,18 +11,19 @@ Trusted means one of two endings, and only these two:
 - **Merged:** a merge-ready pull request that passed blind review, real CI, and the author's own proof, then merged.
 - **Escalated:** a rare decision that only a human owner can make, stated so the owner can answer it in one read. Every product decision is one of these.
 
-The factory must work for every kind of agent: a local CLI agent, a cloud agent, or a pull-request bot.
-It must not depend on any one orchestrator, harness, or vendor.
+The factory must work for every kind of agent the current varieties of agents, and be prepared for future agent concept evolution, here is the preliminary vision of the evolution 'agents will now become omnipresent entities, they will do work the same reliable way no matter where they run, and the mechanisms of firing work to them will become increasingly more convenient, intelligence and auditing is no longer going to be the bottleneck, trust will also get to that point, compute will be the single biggest bottle neck.
+
+Lights out must not depend on any one orchestrator, harness, or vendor.
 
 ## 2. Settled decisions
 
-1. **Entry point.** `AGENTS.md` is the standard entry file. An agent that reads it learns the whole loop.
+1. **Entry point.** `AGENTS.md` is the standard entry file a `SKILL.md` will work as a skill router see popular examples of skill routing skills . An agent that reads it learns the whole loop.
 2. **Prose for judgment, scripts for guarantees.** Rules that only exist as text break again and again in practice. Every fixed, checkable rule lives in a script, a CI check, or a forge setting that refuses a bad state. Prose covers only the judgment that a script cannot make.
 3. **The loop lives where every tool meets.** Some agents cannot be stopped from ending a turn, so the loop cannot live in an agent hook. It lives in the pull request: its required checks, and a script the agent re-runs to learn its next step.
 4. **The loop ends only in merged or escalated.** The agent keeps fixing while each round fixes a new, independent defect. It escalates when a defect of the same kind returns, or when two fixes for one symptom fail.
 5. **Fix findings at discovery.** A finding is fixed in the current change or in a separate pull request opened now. Nothing is filed for later, because a deferred finding has no owner. A finding in a dependency the team does not own is reported to its owner instead.
 6. **Proof through verify skills.** Each consumer project owns a `verify-*` skill: how to run the real product, a map of its features, and attack scenarios. The author proves the change on the artifact the head ships, with a script anyone can re-run. CI runs that proof script.
-7. **Blind review.** A reviewer agent reads only the issue and the pinned diff: no CI results, no author claims, no author summary. A separate verifier then tries to prove or disprove each suspicion, and attacks the change. The reviewer runs on a dedicated API budget (about $100 of Claude API credit for the pilot).
+7. **Blind review.** A reviewer agent reads only the issue (with the human intent in it) and the pinned diff: no CI results, no author claims, no author summary. A separate verifier then tries to prove or disprove each suspicion, and attacks the change. The preliminary idea is that the reviewer runs on a dedicated API budget (about $100 of Claude API credit for the pilot) but it should be build in a way that is provider agnostic.
 8. **Model family.** The reviewer and verifier prefer a different model family from the author whenever one is available. When the chain cannot mix families, the same family may check, and the review still counts.
 9. **Attack lists are a floor, not a ceiling.** A project's attack scenarios are the minimum a checker must try. Every checker also invents and runs a few new attacks of its own and reports them separately. A new attack that finds a real bug joins the list.
 10. **Visual recap.** Each delivery ends with a visual recap a human can read in one glance. (Its form is open, see section 5.)
@@ -30,7 +31,7 @@ It must not depend on any one orchestrator, harness, or vendor.
 12. **Self-improving.** When an agent finds a loophole in the factory, it improves the factory through a pull request to this repository, under the same loop.
 13. **Small and modular.** At most 10 skills at the start. Each rule has exactly one owner. Scripts and tool configs reference the skill that says how something is done; they never copy its text.
 14. **One review contract.** The zero-trust review contract moves into this repository and becomes its single owner. Consumers load it by exact commit and blob and map every requirement to a named mechanism. The contract changes in items 4, 8 and 9 are made through its own proposal path.
-15. **Humans own product decisions.** Every product decision stays with a human in the loop: what to build, for whom, and how it should behave. The factory does not decide product direction. Its main work is hardening (fixing defects, closing gaps, strengthening tests and proof) and gathering data that helps humans improve the product. When work needs a product choice, the factory escalates it with options and a recommendation, and does not pick one itself.
+15. **Humans own product decisions.** Every product decision stays with a human in the loop: what to build, for whom, and how it should behave. The factory does not decide product direction. Its main work is hardening (fixing defects, closing gaps, strengthening tests and proof) and gathering data that helps humans improve the product. When work needs a product choice, the factory escalates in the easiest and most convenient way of reaching the human owner no matter where he is. it with options and a recommendation, and does not pick one itself.
 
 ## 3. Principles carried in from current practice
 
@@ -40,13 +41,13 @@ These come from a survey of the working system that ships trusted software today
 - Nothing the author says, and no green proxy such as "it compiles", counts as proof.
 - The reviewed head is pinned from the forge, and the merge is bound to that exact head.
 - Review staffing scales with the changed-line count, tests and docs included.
-- Never weaken a check to get green: no skipped tests, loosened thresholds, retries, or dropped required checks.
+- NEVER weaken a check to get green: no skipped tests, loosened thresholds, retries, or dropped required checks.
 - A test calls the code the way users do and asserts a literal observed result. A test that greps source is not evidence.
 - Work in small units that each end in a passing check. Order commits so the sequence proves itself: failing test, then fix.
-- Reproduce a bug the way the user hits it before fixing it.
+- ALWAYS Reproduce a bug the way the user hits it before fixing it.
 - Real CI runs on every change. An empty or unobserved check list is not green.
 - Drive and clean up only the instances this run started, and keep the evidence through cleanup.
-- Decide alone when a step is reversible and in scope. Stop for irreversible, shared, or scope-changing actions.
+- Decide alone when a step is reversible and in scope. Stop for irreversible high stakes actions.
 - An escalation states the requirement, the smallest compliant option, the consequences, and a recommendation.
 - Base every branch on a fresh base, and check for overlapping work before starting and before ready.
 - A repeated mistake is made impossible, not discouraged, and the new check must catch a real past case.
@@ -59,7 +60,7 @@ These come from a survey of the working system that ships trusted software today
 ## 4. Reusable parts to port (generic form only)
 
 - A rebase guard that classifies a branch as clean, stale, duplicated, or in real conflict by patch identity.
-- A linker that lets every agent runtime find a project's `verify-*` skill.
+- A linker that lets every agent runtime find a project's `verify-*` (pstacks's concept) skill.
 - An author-prompts checker that puts the author's reasons on the pull request in self-contained form.
 - A self-improvement ledger: no change without a recorded proposal, rejections remembered, rollback available.
 - A skill-layout checker that requires a version bump on every change.
