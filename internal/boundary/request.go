@@ -13,6 +13,7 @@ type Request struct {
 	Previous int64   `json:"previous,omitempty"`
 	Record   *Record `json:"record,omitempty"`
 	Comment  int64   `json:"comment,omitempty"`
+	Body     string  `json:"body,omitempty"`
 }
 
 func RequestFrom(data []byte) (Request, error) {
@@ -25,6 +26,9 @@ func RequestFrom(data []byte) (Request, error) {
 	}
 	if r.Issue < 1 || r.Previous < 0 || r.Comment < 0 {
 		return r, errors.New("issue must be positive; previous and comment cannot be negative")
+	}
+	if r.Body != "" && r.Command != "evidence" {
+		return r, errors.New("only evidence accepts a body")
 	}
 	switch r.Command {
 	case "inspect":
@@ -45,12 +49,19 @@ func RequestFrom(data []byte) (Request, error) {
 		if err := r.Record.Validate(); err != nil {
 			return r, err
 		}
+	case "evidence":
+		if r.Record != nil || r.Previous != 0 || r.Comment != 0 {
+			return r, errors.New("evidence accepts repo, issue and body")
+		}
+		if err := ValidEvidence(r.Body); err != nil {
+			return r, err
+		}
 	case "assess":
 		if r.Record != nil || r.Comment != 0 {
 			return r, errors.New("assess accepts repo, issue and previous; it assesses the stored record")
 		}
 	default:
-		return r, errors.New("command must be inspect, artifact, checkpoint or assess")
+		return r, errors.New("command must be inspect, artifact, evidence, checkpoint or assess")
 	}
 	return r, nil
 }

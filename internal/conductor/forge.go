@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/DereKk8/lights-out/internal/boundary"
 )
@@ -93,7 +96,48 @@ func (f *forge) comment(repo string, id int64) (boundary.Comment, error) {
 	return c, nil
 }
 
+// gitleaksConfig pins gitleaks to its default rules, so a .gitleaks.toml or
+// GITLEAKS_CONFIG in the caller's environment cannot switch rules off.
+const gitleaksConfig = "[extend]\nuseDefault = true\n"
+
+// scan runs gitleaks on body before it goes public. A possible secret is a
+// refusal that names only the rule and the line.
+func (f *forge) scan(body string) (err error) {
+	dir, err := os.MkdirTemp("", "lights-out-scan-")
+	if err != nil {
+		return unavailable{err}
+	}
+	defer func() {
+		if rmErr := os.RemoveAll(dir); rmErr != nil && err == nil {
+			err = unavailable{rmErr}
+		}
+	}()
+	config := filepath.Join(dir, "gitleaks.toml")
+	if err = os.WriteFile(config, []byte(gitleaksConfig), 0o600); err != nil {
+		return unavailable{err}
+	}
+	out, err := f.run(f.ctx, []byte(body), "gitleaks", "stdin", "--no-banner", "--log-level", "error", "--redact",
+		"--exit-code", "0", "--ignore-gitleaks-allow", "--config", config, "--gitleaks-ignore-path", dir,
+		"--report-format", "json", "--report-path", "-")
+	if err != nil {
+		return unavailable{err}
+	}
+	leaks, err := boundary.LeaksFrom(out)
+	if err != nil || len(leaks) == 0 {
+		return err
+	}
+	found := make([]string, len(leaks))
+	for i, l := range leaks {
+		found[i] = fmt.Sprintf("%s on line %d", l.RuleID, l.StartLine)
+	}
+	return fmt.Errorf("the comment may hold a secret (%s): remove it, rotate it if it is real, and post again", strings.Join(found, ", "))
+}
+
+// post publishes body on the source issue after scan passes.
 func (f *forge) post(body string) (boundary.Comment, error) {
+	if err := f.scan(body); err != nil {
+		return boundary.Comment{}, err
+	}
 	payload, err := json.Marshal(struct {
 		Body string `json:"body"`
 	}{body})

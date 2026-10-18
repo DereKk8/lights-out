@@ -26,12 +26,22 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 1. Name the coordinator identity (stable for the whole task), the author seat, and the CI-health owner.
 2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. A changed requirement needs the owner's decision.
 3. Fill each seat as zero-trust-review's model rules say (ZT-MODEL-4, ZT-MODEL-5), and record each seat's model in the evidence. The author seat writes product changes. You do not write product changes yourself unless you hold the author seat.
-4. Delegate bounded work when it helps. Use cheaper models only where they are adequate and no policy rule names a model. Parallelize only when it saves time. Start no standing workers or supervisors.
+4. Get the secrets ready before any seat starts. Follow the next section.
+5. Delegate bounded work when it helps. Use cheaper models only where they are adequate and no policy rule names a model. Parallelize only when it saves time. Start no standing workers or supervisors.
+
+### Secrets
+
+The owner's broker, Agent Vault, holds every secret. Agents use a secret through the broker and never hold its value. Lights Out stores, fetches, and passes no secret.
+
+1. Read the secrets manifest, `secrets.json`, beside the product's `verify-*` skill. `{"secrets": []}` means the product needs none. A missing manifest is a gap: report it to the skill's owner.
+2. Run `agent-access doctor <profile> --needs <manifest>`. A missing secret is an environment failure, never a pass and never a product failure.
+3. For each missing secret, run `agent-access request <profile> --needs <manifest> --task <issue URL>`. It asks the owner once. Checkpoint phase `blocked`, and name the missing key in `next`. Never provision, fetch, or print a secret yourself.
+4. Start every seat under `agent-access run <profile> -- <runtime command>`, so the seat holds placeholders and the broker adds the real values. A runtime that fails under the broker is an environment gap: report it. The broker's own documentation lists the known gaps. A seat started outside the broker gets no secret.
 
 ## 3. Work
 
 1. Reproduce a defect through the product's user-facing path before anyone fixes it.
-2. For each confirmed finding, post one evidence comment with the real trigger, the harm, and the smallest disposition (ZT-PROP-1, ZT-PROP-2). Record it as a finding.
+2. For each confirmed finding, post one evidence comment with the real trigger, the harm, and the smallest disposition (ZT-PROP-1, ZT-PROP-2). Record it as a finding. Post every evidence comment with the conductor's `evidence` command. It refuses a comment that may hold a secret.
 3. The author fixes in-scope findings. Hand an unrelated finding to a separate accountable team at once: open its own issue, and start a team for it yourself if no other owner exists. That team accepts the finding by checkpointing its own record. Until then, the finding stays yours and stays open in your record.
 4. A defect in something you may not change goes to its owner as a report with the fix ready.
 5. Report durable friction (broken tools, unclear instructions, wasted retries) as separate work. Do not grow the current task.
@@ -44,7 +54,7 @@ Checkpoint before a session ends, after each finding, after the head changes, an
 1. Open the candidate as a pull request through the forge, or name the existing revision for a no-change outcome, and checkpoint it in phase `review`.
 2. Run sync-zero-trust. Its identity line must equal the `policy` from `inspect`. If it does not, stop: Lights Out must sync first, and that is engineering work on this repository, not an exception.
 3. Run the review exactly as zero-trust-review says, with fresh sessions in their seats. Isolation must be a mechanism, not an instruction: a reviewer that can read the issue thread, the pull request text, or CI output can see author claims (ZT-INDEP-2).
-4. Post each review part as its own comment on the source issue, in the order that docs/commands.md lists. Pin each with `artifact`. The conductor checks the order.
+4. Post each review part as its own comment on the source issue with `evidence`, in the order that docs/commands.md lists. A seat that cannot run the conductor gives you its part, and you post it. The conductor checks the order.
 5. Record the proofs, and checkpoint them. The verifier posts the report, then the receipt with the digests from that checkpoint. Then checkpoint the review.
 6. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record.
 

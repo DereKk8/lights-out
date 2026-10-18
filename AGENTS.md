@@ -35,13 +35,13 @@ Go code in this repository keeps these guards. The first change that adds Go cod
 ## Commands
 
 - Build: `go build -o /tmp/lights-out ./cmd/lights-out`
-- Test the public entry point: `go test ./...`
+- Test the public entry point: `go test ./...` (needs `gitleaks` 8.30.1 on PATH)
 - Lint: `golangci-lint run` (v2.14.0)
 - Prove the lint rejects seeded violations: `go run ./cmd/lint-guard`
 - Run: `go run ./cmd/lights-out < request.json` (see `docs/commands.md`)
 - CI: `.github/workflows/ci.yml`, job `ci`, runs all four checks.
 
-For a temporary Nix tool environment, prefix lint and lint-guard with `nix shell nixpkgs#golangci-lint -c`.
+For a temporary Nix tool environment, prefix each command with `nix shell nixpkgs#golangci-lint nixpkgs#gitleaks -c`.
 
 ## Implementation limits
 

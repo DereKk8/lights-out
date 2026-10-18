@@ -21,6 +21,10 @@ repos/o/r/issues/1/comments*) printf '[]' ;;
 esac
 `
 
+// allowAll is a gitleaks config that allows everything. lightsOut leaves it
+// where gitleaks would find it, so the conductor must pin its own rules.
+const allowAll = "[extend]\nuseDefault = true\n[allowlist]\nregexes = ['.*']\n"
+
 // lightsOut builds the real executable and runs it with request on stdin.
 func lightsOut(t *testing.T, request string) (stdout, stderr, calls string, code int) {
 	t.Helper()
@@ -32,9 +36,14 @@ func lightsOut(t *testing.T, request string) (stdout, stderr, calls string, code
 	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fakeGH), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	permissive := filepath.Join(dir, ".gitleaks.toml")
+	if err := os.WriteFile(permissive, []byte(allowAll), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	log := filepath.Join(dir, "gh.log")
 	cmd := exec.Command(bin)
-	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_LOG="+log)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_LOG="+log, "GITLEAKS_CONFIG="+permissive)
 	cmd.Stdin = strings.NewReader(request)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -70,7 +79,17 @@ func TestExecutableNamesTheFailingToolCall(t *testing.T) {
 
 func TestExecutableRefusesAMalformedRequestBeforeAnyToolRuns(t *testing.T) {
 	stdout, stderr, calls, code := lightsOut(t, `{"command":"merge","repo":"o/r","issue":1}`)
-	want := `{"status":"error","kind":"refused","error":"command must be inspect, artifact, checkpoint or assess"}`
+	want := `{"status":"error","kind":"refused","error":"command must be inspect, artifact, evidence, checkpoint or assess"}`
+	if code != 1 || stdout != "" || calls != "" || strings.TrimSpace(stderr) != want {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%s", code, stdout, stderr, calls)
+	}
+}
+
+// The real gitleaks runs here, so a change to its flags or report fails.
+func TestExecutableRefusesASecretBeforeItGoesPublic(t *testing.T) {
+	key := "AKIA" + "Z3MSJV4WWNKWW5FG" // joined at run time, so this file holds no key-shaped string
+	stdout, stderr, calls, code := lightsOut(t, `{"command":"evidence","repo":"o/r","issue":1,"body":"$ env\naws_access_key_id = `+key+` # gitleaks:allow\n"}`)
+	want := `{"status":"error","kind":"refused","error":"the comment may hold a secret (aws-access-token on line 2): remove it, rotate it if it is real, and post again"}`
 	if code != 1 || stdout != "" || calls != "" || strings.TrimSpace(stderr) != want {
 		t.Fatalf("code=%d stdout=%s stderr=%s calls=%s", code, stdout, stderr, calls)
 	}

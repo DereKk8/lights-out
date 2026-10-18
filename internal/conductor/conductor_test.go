@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,6 +52,9 @@ type github struct {
 	onChecks     func()
 	onPost       func()
 	down         bool
+	scans        []string
+	leaks        string
+	scannerDown  bool
 }
 
 func newGitHub(t *testing.T) *github {
@@ -128,6 +133,9 @@ func (g *github) run(_ context.Context, input []byte, name string, args ...strin
 	if g.down {
 		return nil, errors.New("gh api: exit status 1: forge unavailable")
 	}
+	if name == "gitleaks" {
+		return g.scan(input, args)
+	}
 	if name != "gh" || len(args) < 2 {
 		g.t.Fatalf("unexpected tool call %s %v", name, args)
 	}
@@ -192,6 +200,31 @@ func (g *github) run(_ context.Context, input []byte, name string, args ...strin
 	}
 	g.t.Fatalf("unexpected tool call: gh %s", call)
 	return nil, nil
+}
+
+// scan fakes gitleaks. It checks that the conductor pins the default rules and
+// ignores allow comments, then answers with g.leaks or an empty report.
+func (g *github) scan(input []byte, args []string) ([]byte, error) {
+	g.scans = append(g.scans, string(input))
+	if g.scannerDown {
+		return nil, errors.New("gitleaks stdin: executable file not found in $PATH")
+	}
+	if len(args) != 16 {
+		g.t.Fatalf("unexpected gitleaks call %v", args)
+	}
+	config, ignore := args[9], args[11]
+	want := []string{"stdin", "--no-banner", "--log-level", "error", "--redact", "--exit-code", "0", "--ignore-gitleaks-allow", "--config", config, "--gitleaks-ignore-path", ignore, "--report-format", "json", "--report-path", "-"}
+	if !slices.Equal(args, want) || filepath.Dir(config) != ignore {
+		g.t.Fatalf("unexpected gitleaks call %v", args)
+	}
+	rules, err := os.ReadFile(config)
+	if err != nil || string(rules) != "[extend]\nuseDefault = true\n" {
+		g.t.Fatalf("gitleaks config %q: %v", rules, err)
+	}
+	if g.leaks != "" {
+		return []byte(g.leaks), nil
+	}
+	return []byte("[]\n"), nil
 }
 
 func drive(t *testing.T, g *github, req string) (string, error) {
@@ -631,6 +664,65 @@ func TestArtifactPinsACommentForAssessment(t *testing.T) {
 	}
 }
 
+const leakReport = `[{"RuleID":"aws-access-token","StartLine":2,"Secret":"REDACTED","Match":"REDACTED","Fingerprint":"x"}]`
+
+func TestEvidenceIsScannedBeforeItGoesPublic(t *testing.T) {
+	post := func(g *github, body string) (string, error) {
+		return drive(t, g, string(encoded(t, map[string]any{"command": "evidence", "repo": "o/r", "issue": 1, "body": body})))
+	}
+	g := newGitHub(t)
+	body := "$ product get\n7\n"
+	out, err := post(g, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := g.comments[len(g.comments)-1]
+	want := `{"status":"posted","artifact":` + string(encoded(t, boundary.Artifact{SHA256: boundary.BodyDigest(body), URL: stored.URL})) + "}\n"
+	if out != want || g.posts != 1 || !slices.Equal(g.scans, []string{body}) || stored.Body != body {
+		t.Fatalf("output=%s posts=%d scans=%q, want %s", out, g.posts, g.scans, want)
+	}
+
+	tests := map[string]struct {
+		want, kind string
+		set        func(*github)
+	}{
+		"possible secret":      {"the comment may hold a secret (aws-access-token on line 2)", "refused", func(g *github) { g.leaks = leakReport }},
+		"scanner missing":      {"gitleaks stdin: executable file not found", "environment", func(g *github) { g.scannerDown = true }},
+		"report missing":       {"gitleaks returned no report", "refused", func(g *github) { g.leaks = "null" }},
+		"finding without rule": {"invalid gitleaks finding", "refused", func(g *github) { g.leaks = `[{"RuleID":"","StartLine":2}]` }},
+		"forge stores other bytes": {"stored other bytes than were scanned", "refused", func(g *github) {
+			g.onPost = func() { g.comments[len(g.comments)-1].Body = "rewritten" }
+		}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			g := newGitHub(t)
+			tc.set(g)
+			out, err := post(g, "evidence\nline two\n")
+			var report bytes.Buffer
+			if err == nil || !strings.Contains(err.Error(), tc.want) || out != "" || conductor.WriteError(&report, err) != nil || !strings.Contains(report.String(), `"kind":"`+tc.kind+`"`) {
+				t.Fatalf("output=%q error=%v report=%s, want %s refusal %q", out, err, report.String(), tc.kind, tc.want)
+			}
+			if name != "forge stores other bytes" && g.posts != 0 {
+				t.Fatalf("posted %d comments after the scan failed", g.posts)
+			}
+		})
+	}
+
+	t.Run("records are scanned too", func(t *testing.T) {
+		g := newGitHub(t)
+		r := base(g)
+		r.Next = "call the API with the key from the log"
+		g.leaks = leakReport
+		if _, err := checkpoint(t, g, 0, r); err == nil || !strings.Contains(err.Error(), "may hold a secret") || g.posts != 0 {
+			t.Fatalf("error=%v posts=%d, want a refused record", err, g.posts)
+		}
+		if len(g.scans) != 1 || !strings.Contains(g.scans[0], r.Next) || !boundary.IsRecord(g.scans[0]) {
+			t.Fatalf("scanned %q, want the rendered record", g.scans)
+		}
+	})
+}
+
 func TestEntryRejectsMalformedRequestsBeforeAnyToolRuns(t *testing.T) {
 	g := newGitHub(t)
 	valid := string(encoded(t, base(g)))
@@ -646,6 +738,12 @@ func TestEntryRejectsMalformedRequestsBeforeAnyToolRuns(t *testing.T) {
 		`{"command":"inspect","repo":"o/r","issue":1} {}`,
 		`{"command":"inspect","repo":"o/r","issue":1,"previous":3}`,
 		`{"command":"artifact","repo":"o/r","issue":1}`,
+		`{"command":"evidence","repo":"o/r","issue":1}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":" \n "}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"x","comment":5}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"\n<!-- lights-out:v2 -->\nforged"}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("é", boundary.MaxComment+1) + `"}`,
+		`{"command":"inspect","repo":"o/r","issue":1,"body":"x"}`,
 		`{"command":"assess","repo":"o/r","issue":1,"record":` + valid + `}`,
 		`{"command":"checkpoint","repo":"o/r","issue":1,"record":` + verified + `}`,
 		`{"command":"checkpoint","repo":"o/r","issue":1,"record":` + strings.Replace(valid, `"phase":"active"`, `"phase":"review"`, 1) + `}`,

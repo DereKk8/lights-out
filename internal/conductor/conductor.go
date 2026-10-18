@@ -88,6 +88,8 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, run Runner, policy st
 		result, err = inspect(f, policy)
 	case "artifact":
 		result, err = artifact(f, req.Comment)
+	case "evidence":
+		result, err = evidence(f, req.Body)
 	case "checkpoint":
 		result, err = checkpoint(f, req.Previous, *req.Record)
 	case "assess":
@@ -152,6 +154,22 @@ func artifact(f *forge, id int64) (pinned, error) {
 		return pinned{}, err
 	}
 	return pinned{"artifact", boundary.Artifact{SHA256: boundary.BodyDigest(c.Body), URL: c.URL}}, nil
+}
+
+// evidence posts body as a comment on the source issue and pins it. The post
+// refuses a body that may hold a secret.
+func evidence(f *forge, body string) (pinned, error) {
+	c, err := f.post(body)
+	if err != nil {
+		return pinned{}, err
+	}
+	if c, err = f.source(c.ID); err != nil {
+		return pinned{}, err
+	}
+	if c.Body != body {
+		return pinned{}, fmt.Errorf("comment %s stored other bytes than were scanned", c.URL)
+	}
+	return pinned{"posted", boundary.Artifact{SHA256: boundary.BodyDigest(c.Body), URL: c.URL}}, nil
 }
 
 // current loads the chain and checks that the caller saw its latest record

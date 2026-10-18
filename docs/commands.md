@@ -8,16 +8,21 @@ Run it from a checkout of this repository:
 printf '%s' '{"command":"inspect","repo":"OWNER/NAME","issue":55}' | go -C <lights-out checkout> run ./cmd/lights-out
 ```
 
-The conductor calls `gh`, which must be signed in as a user who can write to the repository. No secret is ever an argument. Requests are limited to 4 MiB. Unknown, duplicate, or non-lowercase fields fail. Name the repository exactly as GitHub does, including case.
+The conductor calls `gh`, which must be signed in as a user who can write to the repository, and `gitleaks` 8.30.1. No secret is ever an argument. Requests are limited to 4 MiB. Unknown, duplicate, or non-lowercase fields fail. Name the repository exactly as GitHub does, including case.
 
 ## Commands
 
 | Command | Request fields | What it does |
 |---|---|---|
 | `inspect` | `repo`, `issue` | Reads the issue and its whole record chain. Returns `policy` (the zero-trust-review identity line that Lights Out follows), `issue`, `intent_sha256`, `latest` (the newest record comment ID, 0 when none), `url`, `record`, `contract_sha256`, `proofs_sha256`, and `ignored`. |
-| `artifact` | `repo`, `issue`, `comment` | Pins one comment on the source issue. Returns `artifact`: `{"sha256":"…","url":"…"}`. Use it for every artifact; do not compute digests yourself. |
+| `evidence` | `repo`, `issue`, `body` | Scans `body` for secrets, posts it as a comment on the source issue, and pins it. Returns `status: "posted"` and `artifact`. Post every evidence comment and review part this way. |
+| `artifact` | `repo`, `issue`, `comment` | Pins a comment that is already on the source issue. Returns `artifact`: `{"sha256":"…","url":"…"}`. Use `evidence` or `artifact` for every artifact; do not compute digests yourself. |
 | `checkpoint` | `repo`, `issue`, `previous`, `record` | Appends `record` after the record `previous` (the `latest` you last saw), then reads the chain again to prove the write landed. Returns the new `latest`, `url`, `record`, and digests. |
 | `assess` | `repo`, `issue`, `previous` | Runs the acceptance gate on the stored record `previous`. On success it appends the verified record and returns `status: "verified"`. On refusal it writes nothing. |
+
+Every comment that the conductor posts is scanned first: evidence bodies and records alike. The conductor runs gitleaks with its default rules, pinned so that a `.gitleaks.toml`, `GITLEAKS_CONFIG`, a `.gitleaksignore`, or a `gitleaks:allow` comment cannot switch a rule off. A possible secret is a refusal that names the rule and the line, never the value, and nothing is posted. Remove the value, and rotate it if it is real, because it has already left the vault. A missing scanner is an `environment` failure. The scan finds known secret shapes. It cannot prove that a comment holds no secret, so keep secret values out of every seat in the first place.
+
+An evidence body is at most 65536 characters, the GitHub limit. It cannot start with the record marker.
 
 `ignored` lists record-like comments that are not part of the history: records in an earlier format, and records written by someone who cannot write to the repository. Read the earlier-format records as history, not state.
 
