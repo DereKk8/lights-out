@@ -61,7 +61,7 @@ Each entry proves one acceptance criterion on the exact candidate:
 {"criterion": "A1", "head": "<candidate head>", "kind": "surface", "build": "<identity of the tested artifact>", "evidence": <artifact>, "observation": <artifact>}
 ```
 
-`evidence` holds the action and its result. `observation` is a separate comment with a second, independent observation of the result. `kind` is `surface`. The owner deferred Verilex (D13), so there is no Verilex proof kind.
+`evidence` holds the action and its result. `observation` is a separate comment with a second, independent observation of the result. `kind` is `surface`: the team's own test or observation through the product's user-facing path. No outside verification system is approved yet (D13), so no other kind exists.
 
 ### Findings
 

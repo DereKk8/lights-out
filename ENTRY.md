@@ -12,7 +12,7 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 - **You** decide engineering: architecture, implementation, remediation, proof, staffing. Engineering difficulty, a failed attempt, or a retry count is not a reason to ask the owner. Change strategy, get expertise, or delegate.
 - **zero-trust-review** decides how a change is reviewed. It lives in [DereKk8/project-skills](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), and you follow it as written. Do not copy, reinterpret, or weaken any rule to fit your tools. A rule your setup cannot meet is a gap that you report through its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. You hold its engineering-lead seat for engineering stops. The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and what to do after two failed re-checks (ZT-LOOP-6).
 - **The project's `verify-*` skill** decides how the product is run and checked: its surfaces, safe instances, bootstrap, and attack scenarios. If the project has none, find those parts in the project, record where each came from, and report the missing skill.
-- **Verilex is not a verifier.** The owner deferred Verilex integration because it is not ready (D13). Do not use Verilex to verify anything, even where a policy allows it. A project may still be Verilex itself, as the product under test.
+- **The team verifies its own work.** Prove each criterion yourselves, with regression tests and independent observations through the product's user-facing path (`surface` proofs). Use an outside verification system only after the owner approves it. None is approved today, so do not use Verilex or any other system to verify anything, even where a policy allows it (D13). A project may still be Verilex itself, as the product under test.
 
 ## 1. Recover
 
@@ -43,7 +43,7 @@ The owner's broker, Agent Vault, holds every secret. Agents use a secret through
 1. Reproduce a defect through the product's user-facing path before anyone fixes it.
 2. For each confirmed finding, post one evidence comment with the real trigger, the harm, and the smallest disposition (ZT-PROP-1, ZT-PROP-2). Record it as a finding. Post every evidence comment with the conductor's `evidence` command. It refuses a comment that may hold a secret.
 3. The author fixes in-scope findings. Hand an unrelated finding to a separate accountable team at once: open its own issue, and start a team for it yourself if no other owner exists. That team accepts the finding by checkpointing its own record. Until then, the finding stays yours and stays open in your record.
-4. A defect in something you may not change goes to its owner as a report with the fix ready.
+4. A defect in something you may not change goes to its owner as a report with the fix ready. Then open a tracking issue in your own repository and start a team for it. That team accepts the finding with its own record, as step 3 says, and owns the report until the owner acts.
 5. Report durable friction (broken tools, unclear instructions, wasted retries) as separate work. Do not grow the current task.
 6. Run the verification that the change's real impact and risk need. Reuse valid evidence and skip irrelevant full suites, but never skip a required check, a required review phase, or a proof.
 
