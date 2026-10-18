@@ -36,7 +36,7 @@ The owner's broker, Agent Vault, holds every secret. Agents use a secret through
 1. Read the secrets manifest, `secrets.json`, beside the product's `verify-*` skill. `{"secrets": []}` means the product needs none. A missing manifest is a gap: report it to the skill's owner.
 2. Run `agent-access doctor <profile> --needs <manifest>`. A missing secret is an environment failure, never a pass and never a product failure.
 3. For each missing secret, run `agent-access request <profile> --needs <manifest> --task <issue URL>`. It asks the owner once. Checkpoint phase `blocked`, and name the missing key in `next`. Never provision, fetch, or print a secret yourself.
-4. Start every seat under `agent-access run <profile> -- <runtime command>`, so the seat holds placeholders and the broker adds the real values. A runtime that fails under the broker is an environment gap: report it. The broker's own documentation lists the known gaps. A seat started outside the broker gets no secret.
+4. Start every seat under `agent-access run <profile> -- <runtime command>`, so the seat holds placeholders and the broker adds the real values. If a runtime fails under the broker, check the broker's own documentation. Use a fallback only where it documents one for that exact failure, and record the fallback in the evidence. Any other failure is an environment gap: report it.
 
 ## 3. Work
 
