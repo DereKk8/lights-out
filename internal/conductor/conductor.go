@@ -27,6 +27,9 @@ func Execute(ctx context.Context, stdin []byte, name string, args ...string) ([]
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		call := name
 		for _, a := range args {
@@ -97,11 +100,18 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, run Runner, policy st
 }
 
 // WriteError reports a failed command as structured output.
+// Kind "environment" means a tool call failed, so nothing was proved either
+// way. Kind "refused" means Lights Out checked and refused.
 func WriteError(out io.Writer, err error) error {
+	kind := "refused"
+	if errors.As(err, new(unavailable)) {
+		kind = "environment"
+	}
 	return json.NewEncoder(out).Encode(struct {
 		Status string `json:"status"`
+		Kind   string `json:"kind"`
 		Error  string `json:"error"`
-	}{"error", err.Error()})
+	}{"error", kind, err.Error()})
 }
 
 func intent(i boundary.Issue) string { return boundary.BodyDigest(i.Title + "\n" + i.Body) }

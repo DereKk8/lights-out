@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/DereKk8/lights-out/internal/boundary"
-	"github.com/DereKk8/lights-out/internal/conductor"
 )
 
 func guard() error {
@@ -56,9 +55,13 @@ func guard() error {
 		Rejected int    `json:"rejected"`
 	}{"passed", count})
 }
+
 func main() {
 	if err := guard(); err != nil {
-		if writeErr := conductor.WriteError(os.Stderr, err); writeErr != nil {
+		if writeErr := json.NewEncoder(os.Stderr).Encode(struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		}{"failed", err.Error()}); writeErr != nil {
 			os.Exit(2)
 		}
 		os.Exit(1)

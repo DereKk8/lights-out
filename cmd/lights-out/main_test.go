@@ -62,7 +62,7 @@ func TestExecutableAnswersInJSON(t *testing.T) {
 
 func TestExecutableNamesTheFailingToolCall(t *testing.T) {
 	stdout, stderr, _, code := lightsOut(t, `{"command":"inspect","repo":"o/r","issue":9}`)
-	want := `{"status":"error","error":"gh api repos/o/r/issues/9: exit status 1: HTTP 404: Not Found (https://api.github.com/repos/o/r/issues/9)"}`
+	want := `{"status":"error","kind":"environment","error":"gh api repos/o/r/issues/9: exit status 1: HTTP 404: Not Found (https://api.github.com/repos/o/r/issues/9)"}`
 	if code != 1 || stdout != "" || strings.TrimSpace(stderr) != want {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -70,7 +70,7 @@ func TestExecutableNamesTheFailingToolCall(t *testing.T) {
 
 func TestExecutableRefusesAMalformedRequestBeforeAnyToolRuns(t *testing.T) {
 	stdout, stderr, calls, code := lightsOut(t, `{"command":"merge","repo":"o/r","issue":1}`)
-	want := `{"status":"error","error":"command must be inspect, artifact, checkpoint or assess"}`
+	want := `{"status":"error","kind":"refused","error":"command must be inspect, artifact, checkpoint or assess"}`
 	if code != 1 || stdout != "" || calls != "" || strings.TrimSpace(stderr) != want {
 		t.Fatalf("code=%d stdout=%s stderr=%s calls=%s", code, stdout, stderr, calls)
 	}

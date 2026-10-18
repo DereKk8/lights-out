@@ -1,6 +1,6 @@
 # Command contract
 
-The conductor is one executable. It reads one JSON request on stdin. On success it writes one JSON result to stdout and exits 0. On any error it writes `{"status":"error","error":"<reason>"}` to stderr and exits 1. It never reports success after an error.
+The conductor is one executable. It reads one JSON request on stdin. On success it writes one JSON result to stdout and exits 0. On any error it writes `{"status":"error","kind":"<kind>","error":"<reason>"}` to stderr and exits 1. Kind `refused` means Lights Out checked and refused. Kind `environment` means a tool call failed, so nothing was proved either way: never read it as a product failure or as a pass. The conductor never reports success after an error.
 
 Run it from a checkout of this repository:
 

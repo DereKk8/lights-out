@@ -30,8 +30,19 @@ type forge struct {
 	writers map[string]bool
 }
 
+// unavailable marks a failed tool call: the environment failed, so the
+// command proved nothing either way.
+type unavailable struct{ err error }
+
+func (u unavailable) Error() string { return u.err.Error() }
+func (u unavailable) Unwrap() error { return u.err }
+
 func (f *forge) gh(stdin []byte, args ...string) ([]byte, error) {
-	return f.run(f.ctx, stdin, "gh", args...)
+	out, err := f.run(f.ctx, stdin, "gh", args...)
+	if err != nil {
+		return nil, unavailable{err}
+	}
+	return out, nil
 }
 
 func (f *forge) api(endpoint, jq string) ([]byte, error) {
