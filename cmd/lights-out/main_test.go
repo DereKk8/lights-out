@@ -3,29 +3,75 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestExecutableRefusesMalformedRequest(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "lights-out")
-	build := exec.Command("go", "build", "-o", bin, ".")
-	if out, err := build.CombinedOutput(); err != nil {
+// fakeGH stands in for gh on PATH. It logs each call and answers an issue
+// with no comments; any other call fails the way gh does.
+const fakeGH = `#!/bin/sh
+echo "$*" >> "$GH_LOG"
+case "$2" in
+repos/o/r/issues/1) printf '%s' '{"number":1,"title":"Task","body":"Intent.","url":"https://github.com/o/r/issues/1"}' ;;
+repos/o/r/issues/1/comments*) printf '[]' ;;
+*) echo "HTTP 404: Not Found (https://api.github.com/$2)" >&2; exit 1 ;;
+esac
+`
+
+// lightsOut builds the real executable and runs it with request on stdin.
+func lightsOut(t *testing.T, request string) (stdout, stderr, calls string, code int) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "lights-out")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fakeGH), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "gh.log")
 	cmd := exec.Command(bin)
-	cmd.Stdin = strings.NewReader(`{"command":"merge","repo":"o/r","issue":1}`)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_LOG="+log)
+	cmd.Stdin = strings.NewReader(request)
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
 	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
-		t.Fatalf("exit: %v", err)
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), `"status":"error"`) || !strings.Contains(stderr.String(), "command must be inspect, checkpoint or assess") {
-		t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
+	logged, err := os.ReadFile(log)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return out.String(), errOut.String(), string(logged), cmd.ProcessState.ExitCode()
+}
+
+func TestExecutableAnswersInJSON(t *testing.T) {
+	stdout, stderr, calls, code := lightsOut(t, `{"command":"inspect","repo":"o/r","issue":1}`)
+	if code != 0 || stderr != "" || !strings.HasPrefix(stdout, `{"status":"recovered",`) || !strings.Contains(stdout, `"latest":0`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(calls, "api repos/o/r/issues/1/comments?per_page=100&page=1") {
+		t.Fatalf("gh calls: %s", calls)
+	}
+}
+
+func TestExecutableNamesTheFailingToolCall(t *testing.T) {
+	stdout, stderr, _, code := lightsOut(t, `{"command":"inspect","repo":"o/r","issue":9}`)
+	want := `{"status":"error","error":"gh api repos/o/r/issues/9: exit status 1: HTTP 404: Not Found (https://api.github.com/repos/o/r/issues/9)"}`
+	if code != 1 || stdout != "" || strings.TrimSpace(stderr) != want {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestExecutableRefusesAMalformedRequestBeforeAnyToolRuns(t *testing.T) {
+	stdout, stderr, calls, code := lightsOut(t, `{"command":"merge","repo":"o/r","issue":1}`)
+	want := `{"status":"error","error":"command must be inspect, artifact, checkpoint or assess"}`
+	if code != 1 || stdout != "" || calls != "" || strings.TrimSpace(stderr) != want {
+		t.Fatalf("code=%d stdout=%s stderr=%s calls=%s", code, stdout, stderr, calls)
 	}
 }

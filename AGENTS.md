@@ -38,7 +38,7 @@ Go code in this repository keeps these guards. The first change that adds Go cod
 - Test the public entry point: `go test ./...`
 - Lint: `golangci-lint run` (v2.14.0)
 - Prove the lint rejects seeded violations: `go run ./cmd/lint-guard`
-- Run: `/tmp/lights-out < request.json` (see `docs/commands.md`)
+- Run: `go run ./cmd/lights-out < request.json` (see `docs/commands.md`)
 - CI: `.github/workflows/ci.yml`, job `ci`, runs all four checks.
 
 For a temporary Nix tool environment, prefix lint and lint-guard with `nix shell nixpkgs#golangci-lint -c`.

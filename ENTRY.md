@@ -1,36 +1,59 @@
 # Coordinate a task
 
-Give an agent the issue URL and this file. That agent is the accountable coordinator, not a dispatcher that leaves after assigning work. Read the source issue and the target repository's instructions before acting. GitHub is the pilot's only integration. Discord is next (D8), not implemented.
+You received a task and this file. You are the task's accountable coordinator. You own its outcome until a verified resolution exists or the owner makes a product decision. Delegating work does not end your ownership.
 
-## Recover and own
+The outcome is what the task's author wanted, demonstrated with evidence. A pull request, a merge, or a code change is not the goal. A resolution can be a verified change, or proof that the product already does what the task asks (a no-change outcome).
 
-1. Build `go build -o /tmp/lights-out ./cmd/lights-out` from this repository. Commands take one JSON request on stdin and return JSON. Read [the command contract](docs/commands.md).
-2. Run `inspect` with the repository and issue number. The source issue defines intent. Its append-only Lights Out comments hold state, evidence, findings, failed re-check count, and next action. Recover those records before doing work. A fresh session uses the same issue and this entry point, not a predecessor's memory.
-3. Name one coordinator and one CI-health owner in the record. Check concurrent issues and PRs for overlap. Keep scopes and owners separate. Resolve conflicts before delivery. Use the existing runtime to delegate bounded work when useful, with cheaper models only where adequate. Do not start standing workers or a fleet supervisor.
-4. Record the acceptance requirements before implementation. Preserve the source intent and the acceptance requirements through review. A changed requirement needs the owner's decision, not a convenient new test.
+The conductor is this repository's executable. Its contract is [docs/commands.md](docs/commands.md). Read that file before your first command. The task's issue holds every record and every piece of evidence. Your session's memory does not.
 
-## Execute and preserve scope
+## Who decides what
 
-Reproduce defects through the affected product entry point before fixing them. Work in small, maintainable changes with reproducible checks. Engineering difficulty belongs to the coordinator: change strategy or seek expertise rather than asking the owner to solve it. The review authority's fix-round limits still apply.
+- **The owner** decides product intent, accepted behavior, priorities, and product trade-offs. Ask the owner only for those. Give the options, the consequence of each, and your recommendation. Set the record's phase to `blocked` while you wait.
+- **You** decide engineering: architecture, implementation, remediation, proof, staffing. Engineering difficulty, a failed attempt, or a retry count is not a reason to ask the owner. Change strategy, get expertise, or delegate.
+- **zero-trust-review** decides how a change is reviewed. It lives in [DereKk8/project-skills](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), and you follow it as written. Do not copy, reinterpret, or weaken any rule to fit your tools. A rule your setup cannot meet is a gap that you report through its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. You hold its engineering-lead seat for engineering stops. The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and what to do after two failed re-checks (ZT-LOOP-6).
+- **The project's `verify-*` skill** decides how the product is run and checked: its surfaces, safe instances, bootstrap, and attack scenarios. If the project has none, find those parts in the project, record where each came from, and report the missing skill.
+- **Verilex is not a verifier.** The owner deferred Verilex integration because it is not ready (D13). Do not use Verilex to verify anything, even where a policy allows it. A project may still be Verilex itself, as the product under test.
 
-Confirmed findings need a real trigger, harm, and the smallest proportionate disposition under the external review policy. Fix in-scope defects. Start a separate accountable owner for unrelated defects immediately. Keep responsibility until that owner accepts the handoff in the issue record. A filed issue alone is not a handoff. For code outside the team's authority, report the defect and a prepared fix to its owner. Record durable tool friction as separate work without expanding the current task.
+## 1. Recover
 
-Checkpoint before a session ends, after a finding, after a head changes, and before review. Include the exact target revision, evidence locations, outstanding findings, next action, accountable owners, and the cumulative failed re-check count. Never turn an environment failure or an unfinished attempt into success.
+1. Run `inspect` on the issue. Its result is the current state: the latest record, its next action, and the `policy` identity this Lights Out follows. A fresh session starts here and nowhere else.
+2. Read the source issue for intent, and read the target repository's own instructions.
+3. If `ignored` lists records in an earlier format, read them as history. They are not state.
+4. Look at open issues and pull requests in the repository for overlapping work. Keep separate owners and scopes. Resolve a conflict before delivery.
 
-## Review and proof authorities
+## 2. Own and plan
 
-The authority is [zero-trust-review](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), not a local copy. Before the first review and each version change, run its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. Save the exact identity and the per-ID mechanism map in the issue record. Blocking gaps prevent acceptance. Do not reinterpret a rule to fit the runtime.
+1. Name the coordinator identity (stable for the whole task), the author seat, and the CI-health owner.
+2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. A changed requirement needs the owner's decision.
+3. Fill each seat as zero-trust-review's model rules say (ZT-MODEL-4, ZT-MODEL-5), and record each seat's model in the evidence. The author seat writes product changes. You do not write product changes yourself unless you hold the author seat.
+4. Delegate bounded work when it helps. Use cheaper models only where they are adequate and no policy rule names a model. Parallelize only when it saves time. Start no standing workers or supervisors.
 
-Use fresh review sessions with only the inputs permitted by that policy. The independent reviewer saves its intent reading before seeing the implementation. Keep author conversations, summaries, CI and earlier findings out of that session. Save the review before proof. Use the policy's staffing, pinning, proof, attack, verdict, and bounded-loop procedures directly. The coordinator holds its engineering-lead seat for engineering stops, model refusals, runner health, and sync drift (D10). The owner decides serious unresolved risk and re-scope after the policy's failed re-check bound. Preserve that count across sessions.
+## 3. Work
 
-The project's `verify-*` skill owns surfaces, bootstrap, safe instances, feature coverage, and attacks. The owner deferred Verilex integration because it is not ready (D13). Do not use Verilex as a verification engine. Use regression tests and independent product-surface observations under zero-trust-review. Reviewers and verifiers retain their respective judgments. The pilot only patches Verilex issue 55, with Verilex as the product under test.
+1. Reproduce a defect through the product's user-facing path before anyone fixes it.
+2. For each confirmed finding, post one evidence comment with the real trigger, the harm, and the smallest disposition (ZT-PROP-1, ZT-PROP-2). Record it as a finding.
+3. The author fixes in-scope findings. Hand an unrelated finding to a separate accountable team at once: open its own issue, and start a team for it yourself if no other owner exists. That team accepts the finding by checkpointing its own record. Until then, the finding stays yours and stays open in your record.
+4. A defect in something you may not change goes to its owner as a report with the fix ready.
+5. Report durable friction (broken tools, unclear instructions, wasted retries) as separate work. Do not grow the current task.
+6. Run the verification that the change's real impact and risk need. Reuse valid evidence and skip irrelevant full suites, but never skip a required check, a required review phase, or a proof.
 
-Choose verification for actual impact and risk. Evidence must apply to the exact candidate. Avoid irrelevant full suites, but never skip required checks or either required review phase. Every acceptance requirement needs applicable evidence on the exact candidate. Record actions, inputs, expected and observed results, and side effects. An author's assertion, a test count, or a link without its evidence is not proof.
+Checkpoint before a session ends, after each finding, after the head changes, and before review. Each checkpoint names the exact candidate, its evidence, open findings, the next action, and the failed re-check count. An environment failure or an unfinished attempt is never a success.
 
-## Accept and report
+## 4. Review and prove
 
-Run `assess` against the exact candidate using the recorded contract, independent review, proof records, and live forge checks. Missing, stale, inconclusive, or inapplicable evidence must fail. Do not bypass a refusal. The command is not a merge operation. Use the forge's revision-bound merge only after the review authority reports PASS and every required check is green on that same revision (D11).
+1. Open the candidate as a pull request through the forge, or name the existing revision for a no-change outcome, and checkpoint it in phase `review`.
+2. Run sync-zero-trust. Its identity line must equal the `policy` from `inspect`. If it does not, stop: Lights Out must sync first, and that is engineering work on this repository, not an exception.
+3. Run the review exactly as zero-trust-review says, with fresh sessions in their seats. Isolation must be a mechanism, not an instruction: a reviewer that can read the issue thread, the pull request text, or CI output can see author claims (ZT-INDEP-2).
+4. Post each review part as its own comment on the source issue, in the order that docs/commands.md lists. Pin each with `artifact`. The conductor checks the order.
+5. Record the proofs, and checkpoint them. The verifier posts the report, then the receipt with the digests from that checkpoint. Then checkpoint the review.
+6. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record.
 
-Security, credentials, data loss, irreversible or production-facing actions, and changes to Lights Out gates or authority boundaries need the owner's explicit word before integration. The pilot also requires the owner's separate full zero-trust-review outside Lights Out before merge (D7). Do not treat a review PASS as merge permission.
+## 5. Accept and report
 
-Every resolution, including no-change, leaves an inspectable outcome tied to original intent and evidence. Surface material results, remaining risks, and product choices. Keep routine reports short. Do not require visual recaps or expose internal orchestration in product-facing artifacts. Never add agent commit co-authors. Keep private context and credentials out of public artifacts. After delivery, feedback becomes a new independently owned task through existing channels. No team must remain alive to monitor it.
+1. Run `assess`. It refuses missing, stale, or inapplicable evidence, and it names why. Never work around a refusal. Fix the cause, or report it.
+2. On success, the issue holds the verified record. A verified candidate is not a merged change.
+3. Merge only through the forge's revision-bound merge, and only when zero-trust-review reports PASS and every required check is green on that same revision (D11). A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's explicit word.
+4. **Pilot only:** do not merge. The owner runs a separate, full zero-trust-review of the pull request before any merge (D7).
+5. Post a short outcome comment for the owner: what was asked, what resolves it, the evidence, the remaining risks, and any product choice. Keep routine reports short. Keep internal orchestration out of product-facing text. Add no agent co-author to commits. Keep secrets, credentials, private hosts, and private context out of every public comment.
+
+Feedback after delivery is a new task through the usual channels. No team needs to stay alive to watch the result.
