@@ -32,6 +32,25 @@ Go code in this repository keeps these guards. The first change that adds Go cod
 - A fixture that the lint must reject, with one violation per line, because golangci-lint reports only one issue per line by default. CI checks that the lint still rejects it, so a config change that weakens the guard fails.
 - A required CI job that runs the lint and `go test ./...` on every change.
 
+## Commands
+
+- Build: `go build -o /tmp/lights-out ./cmd/lights-out`
+- Test the public entry point: `go test ./...` (needs `gitleaks` 8.30.1 on PATH)
+- Lint: `golangci-lint run` (v2.14.0)
+- Prove the lint rejects seeded violations: `go run ./cmd/lint-guard`
+- Run: `go run ./cmd/lights-out < request.json` (see `docs/commands.md`)
+- CI: `.github/workflows/ci.yml`, job `ci`, runs all four checks.
+
+For a temporary Nix tool environment, prefix each command with `nix shell nixpkgs#golangci-lint nixpkgs#gitleaks -c`.
+
+## Implementation limits
+
+The Go code is a thin conductor. GitHub owns issues, PRs, checks and integration. Existing runtimes own agent execution. The entry point names the external review authority. Do not implement any of those jobs here. The owner deferred Verilex verification (D13); do not add its proof adapter.
+
+Keep all JSON boundary records in `internal/boundary`, with validation on entry. Unknown fields in Lights Out records are errors. A command failure must stop with structured error output and a nonzero exit. No error may be discarded. No package import starts work.
+
+The public entry point tests enforce exact-revision evidence, immutable acceptance, independent-role receipts, required checks, persistent re-check counts and accepted defect handoffs. The pilot exposes no merge operation. Changes to gates, policy authority, or approved product trade-offs require the owner's approval. Improve engineering mechanisms only with observable benefit and intact guarantees.
+
 ## Writing
 
 For user facing documentation, write in plain English: short sentences, one idea each, active voice, and common words. Use "-", never an em dash.
