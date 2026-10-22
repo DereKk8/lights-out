@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/DereKk8/lights-out/internal/boundary"
 	"github.com/DereKk8/lights-out/internal/conductor"
@@ -723,6 +724,101 @@ func TestEvidenceIsScannedBeforeItGoesPublic(t *testing.T) {
 	})
 }
 
+// longReport posts a report longer than one comment through evidence and
+// returns the artifact that evidence printed, after checking the parts.
+func longReport(t *testing.T, g *github) boundary.Artifact {
+	t.Helper()
+	line := strings.Repeat("é", 99) + "\n"
+	body := "Verdict: PASS\n" + strings.Repeat(line, 2*boundary.MaxComment/100+10)
+	before := len(g.comments)
+	out, err := drive(t, g, string(encoded(t, map[string]any{"command": "evidence", "repo": "o/r", "issue": 1, "body": body})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	posted := g.comments[before:]
+	want := boundary.Artifact{SHA256: boundary.BodyDigest(body), URL: posted[0].URL}
+	var joined string
+	for i, c := range posted {
+		if i > 0 {
+			want.Parts = append(want.Parts, c.URL)
+		}
+		if utf8.RuneCountInString(c.Body) > boundary.MaxComment || !strings.HasSuffix(c.Body, "\n") {
+			t.Fatalf("part %d has %d characters and ends %q, want a whole line within one comment", i+1, utf8.RuneCountInString(c.Body), c.Body[len(c.Body)-1:])
+		}
+		joined += c.Body
+	}
+	if len(posted) != 3 || joined != body || out != `{"status":"posted","artifact":`+string(encoded(t, want))+"}\n" {
+		t.Fatalf("posted %d parts, joined equal %v, output %.300s", len(posted), joined == body, out)
+	}
+	if len(g.scans) != 4 || g.scans[0] != body {
+		t.Fatalf("scanned %d bodies, want the whole body first and then each part", len(g.scans))
+	}
+	return want
+}
+
+func TestLongEvidenceIsPinnedAcrossComments(t *testing.T) {
+	var report boundary.Artifact
+	s := setup(t, func(s *reviewed) {
+		report = longReport(t, s.g)
+		s.record.Review.Report = report
+	})
+	if _, err := s.assess(t); err != nil {
+		t.Fatalf("a review whose report spans comments was refused: %v", err)
+	}
+	t.Run("a line longer than a comment is cut inside the line", func(t *testing.T) {
+		g := newGitHub(t)
+		body := "\n" + strings.Repeat("a", boundary.MaxComment+5)
+		if _, err := drive(t, g, string(encoded(t, map[string]any{"command": "evidence", "repo": "o/r", "issue": 1, "body": body}))); err != nil {
+			t.Fatal(err)
+		}
+		if g.posts != 2 || utf8.RuneCountInString(g.comments[0].Body) != boundary.MaxComment || g.comments[0].Body+g.comments[1].Body != body {
+			t.Fatalf("posted %d parts, want the first %d characters and then the rest", g.posts, boundary.MaxComment)
+		}
+	})
+
+	for name, tc := range map[string]struct {
+		want   string
+		change func(*reviewed, boundary.Artifact)
+	}{
+		"a later part is edited": {"changed since it was pinned", func(s *reviewed, a boundary.Artifact) {
+			for i := range s.g.comments {
+				if s.g.comments[i].URL == a.Parts[1] {
+					s.g.comments[i].Body += "edited\n"
+				}
+			}
+		}},
+		"parts are pinned out of order": {"which is not a later comment", func(s *reviewed, a boundary.Artifact) {
+			a.Parts[0], a.Parts[1] = a.Parts[1], a.Parts[0]
+			s.record.Review.Report = a
+		}},
+		"a part is posted after the receipt": {"the report and receipt must follow proof", func(s *reviewed, a boundary.Artifact) {
+			s.record.Review.Receipt = s.g.artifact(receiptBody(t, s.receipt))
+			var joined string
+			for _, u := range a.URLs() {
+				for _, c := range s.g.comments {
+					if c.URL == u {
+						joined += c.Body
+					}
+				}
+			}
+			a.Parts = append(a.Parts, s.g.comment("late\n", written).URL)
+			a.SHA256 = boundary.BodyDigest(joined + "late\n")
+			s.record.Review.Report = a
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := setup(t, func(s *reviewed) {
+				a := longReport(t, s.g)
+				s.record.Review.Report = a
+				tc.change(s, a)
+			})
+			if _, err := s.assess(t); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestEntryRejectsMalformedRequestsBeforeAnyToolRuns(t *testing.T) {
 	g := newGitHub(t)
 	valid := string(encoded(t, base(g)))
@@ -742,7 +838,8 @@ func TestEntryRejectsMalformedRequestsBeforeAnyToolRuns(t *testing.T) {
 		`{"command":"evidence","repo":"o/r","issue":1,"body":" \n "}`,
 		`{"command":"evidence","repo":"o/r","issue":1,"body":"x","comment":5}`,
 		`{"command":"evidence","repo":"o/r","issue":1,"body":"\n<!-- lights-out:v2 -->\nforged"}`,
-		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("é", boundary.MaxComment+1) + `"}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("a", boundary.MaxComment-1) + `\n<!-- lights-out:v2 -->\nforged"}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("é", boundary.MaxParts*boundary.MaxComment+1) + `"}`,
 		`{"command":"inspect","repo":"o/r","issue":1,"body":"x"}`,
 		`{"command":"assess","repo":"o/r","issue":1,"record":` + valid + `}`,
 		`{"command":"checkpoint","repo":"o/r","issue":1,"record":` + verified + `}`,

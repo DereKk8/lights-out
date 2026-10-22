@@ -189,24 +189,42 @@ func (f *forge) source(id int64) (boundary.Comment, error) {
 	return c, nil
 }
 
-// evidence fetches an artifact's comment again and checks that it is still
-// the pinned bytes, on the source issue, from a repository writer.
-func (f *forge) evidence(a boundary.Artifact) (boundary.Comment, error) {
-	ref, err := boundary.ParseCommentURL(a.URL)
-	if err != nil {
-		return boundary.Comment{}, err
+// span is evidence fetched again: the IDs of its first and last comments
+// and its whole body.
+type span struct {
+	first, last int64
+	body        string
+}
+
+// evidence fetches each of an artifact's comments again and checks that,
+// joined in order, they are still the pinned bytes, on the source issue,
+// from repository writers.
+func (f *forge) evidence(a boundary.Artifact) (span, error) {
+	var s span
+	for i, u := range a.URLs() {
+		ref, err := boundary.ParseCommentURL(u)
+		if err != nil {
+			return s, err
+		}
+		if ref.Repo != f.repo || ref.Issue != f.issue {
+			return s, fmt.Errorf("evidence %s is not a comment on the source issue", u)
+		}
+		c, err := f.source(ref.ID)
+		if err != nil {
+			return s, err
+		}
+		if i == 0 {
+			s.first = c.ID
+		} else if c.ID <= s.last {
+			return s, fmt.Errorf("evidence %s continues in %s, which is not a later comment", a.URL, u)
+		}
+		s.last = c.ID
+		s.body += c.Body
 	}
-	if ref.Repo != f.repo || ref.Issue != f.issue {
-		return boundary.Comment{}, fmt.Errorf("evidence %s is not a comment on the source issue", a.URL)
+	if boundary.BodyDigest(s.body) != a.SHA256 {
+		return s, fmt.Errorf("evidence %s changed since it was pinned, or its digest is wrong", a.URL)
 	}
-	c, err := f.source(ref.ID)
-	if err != nil {
-		return c, err
-	}
-	if boundary.BodyDigest(c.Body) != a.SHA256 {
-		return c, fmt.Errorf("evidence %s changed since it was pinned, or its digest is wrong", a.URL)
-	}
-	return c, nil
+	return s, nil
 }
 
 func (f *forge) pull(pr int) (boundary.Pull, error) {

@@ -22,7 +22,7 @@ The conductor calls `gh`, which must be signed in as a user who can write to the
 
 Every comment that the conductor posts is scanned first: evidence bodies and records alike. The conductor runs gitleaks with its default rules, pinned so that a `.gitleaks.toml`, `GITLEAKS_CONFIG`, a `.gitleaksignore`, or a `gitleaks:allow` comment cannot switch a rule off. A possible secret is a refusal that names the rule and the line, never the value, and nothing is posted. Remove the value, and rotate it if it is real, because it has already left the vault. A missing scanner is an `environment` failure. The scan finds known secret shapes. It cannot prove that a comment holds no secret, so keep secret values out of every seat in the first place.
 
-An evidence body is at most 65536 characters, the GitHub limit. It cannot start with the record marker.
+One GitHub comment holds at most 65536 characters. `evidence` posts a longer body in up to 8 comments, cut at line ends, and pins them all as one artifact: `url` is the first comment, `parts` lists the rest in order, and `sha256` covers all their bodies joined. Every part is scanned, and so is the whole body. `assess` checks every part again, and the whole artifact must sit in its place in the review order. No part may start with the record marker, so a body that would put the marker at the start of a part is refused. Pass the artifact on unchanged; never split a body yourself, because `artifact` pins only one comment.
 
 `ignored` lists record-like comments that are not part of the history: records in an earlier format, and records written by someone who cannot write to the repository. Read the earlier-format records as history, not state.
 

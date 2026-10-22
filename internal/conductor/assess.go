@@ -100,7 +100,7 @@ func reviewed(f *forge, r boundary.Record, followed string) (window, error) {
 		return window{}, fmt.Errorf("zero-trust-review is now %q, but this Lights Out follows %q: run sync-zero-trust and update Lights Out first", policy.Identity, followed)
 	}
 	v := r.Review
-	var parts []boundary.Comment
+	var parts []span
 	for _, a := range []boundary.Artifact{v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt} {
 		c, err := f.evidence(a)
 		if err != nil {
@@ -109,13 +109,13 @@ func reviewed(f *forge, r boundary.Record, followed string) (window, error) {
 		parts = append(parts, c)
 	}
 	syncPart, intent, suspicions, surface, attack, report, receipt := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
-	if syncPart.ID >= intent.ID || intent.ID >= suspicions.ID {
+	if syncPart.last >= intent.first || intent.last >= suspicions.first {
 		return window{}, errors.New("the sync, the saved intent reading and the saved review must be posted in that order (ZT-INDEP-1)")
 	}
-	if suspicions.ID >= min(surface.ID, attack.ID) || max(surface.ID, attack.ID) >= report.ID || report.ID >= receipt.ID {
+	if suspicions.last >= min(surface.first, attack.first) || max(surface.last, attack.last) >= report.first || report.last >= receipt.first {
 		return window{}, errors.New("proof must follow the saved review, and the report and receipt must follow proof (ZT-INDEP-7)")
 	}
-	sync, err := boundary.SyncFrom(syncPart.Body)
+	sync, err := boundary.SyncFrom(syncPart.body)
 	if err != nil {
 		return window{}, err
 	}
@@ -128,7 +128,7 @@ func reviewed(f *forge, r boundary.Record, followed string) (window, error) {
 	if len(sync.Blocking) > 0 || sync.Incomplete != "none" {
 		return window{}, fmt.Errorf("the sync reports blocking gaps [%s] and incomplete parts %q: those parts are INCOMPLETE", strings.Join(sync.Blocking, " "), sync.Incomplete)
 	}
-	return window{suspicions.ID, receipt.ID}, endorsed(r, receipt.Body, followed)
+	return window{suspicions.last, receipt.first}, endorsed(r, receipt.body, followed)
 }
 
 // endorsed checks that the verifier's receipt binds a PASS to this candidate,
@@ -178,7 +178,7 @@ func proven(f *forge, r boundary.Record, w window) error {
 			if err != nil {
 				return err
 			}
-			if c.ID <= w.after || c.ID >= w.before {
+			if c.first <= w.after || c.last >= w.before {
 				return fmt.Errorf("proof %s of %s was not posted between the saved review and the receipt", a.URL, p.Criterion)
 			}
 		}

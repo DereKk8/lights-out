@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -35,11 +36,17 @@ type Candidate struct {
 	PR   int    `json:"pr"`
 }
 
-// Artifact pins the exact bytes of one comment on the source issue.
+// Artifact pins the exact bytes of evidence on the source issue. Evidence
+// longer than one comment continues in Parts, in order, and SHA256 covers
+// the bodies of URL and every part joined.
 type Artifact struct {
-	SHA256 string `json:"sha256"`
-	URL    string `json:"url"`
+	SHA256 string   `json:"sha256"`
+	URL    string   `json:"url"`
+	Parts  []string `json:"parts,omitempty"`
 }
+
+// URLs lists the artifact's comments in order.
+func (a Artifact) URLs() []string { return append([]string{a.URL}, a.Parts...) }
 
 // Proof ties one acceptance criterion to evidence on the exact head. The only
 // kind is "surface": a Verilex proof kind waits for the owner (D13).
@@ -154,8 +161,10 @@ func (r Record) Validate() error {
 		if err := validArtifacts(p.Evidence, p.Observation); err != nil {
 			return err
 		}
-		if p.Evidence.URL == p.Observation.URL {
-			return errors.New("a proof's observation must be a separate comment from its evidence")
+		for _, u := range p.Observation.URLs() {
+			if slices.Contains(p.Evidence.URLs(), u) {
+				return errors.New("a proof's observation must be a separate comment from its evidence")
+			}
 		}
 	}
 	if r.Review != nil {
@@ -244,8 +253,15 @@ func (a Artifact) Validate() error {
 	if !hashPattern.MatchString(a.SHA256) {
 		return errors.New("artifact needs the SHA-256 of its comment body; get it with the artifact command")
 	}
-	_, err := ParseCommentURL(a.URL)
-	return err
+	if len(a.Parts) >= MaxParts {
+		return fmt.Errorf("artifact spans more than %d comments", MaxParts)
+	}
+	for _, u := range a.URLs() {
+		if _, err := ParseCommentURL(u); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Artifacts lists every artifact the record pins.

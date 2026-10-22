@@ -156,20 +156,38 @@ func artifact(f *forge, id int64) (pinned, error) {
 	return pinned{"artifact", boundary.Artifact{SHA256: boundary.BodyDigest(c.Body), URL: c.URL}}, nil
 }
 
-// evidence posts body as a comment on the source issue and pins it. The post
-// refuses a body that may hold a secret.
+// evidence posts body on the source issue, in as many comments as it needs,
+// and pins them. The post refuses a body that may hold a secret. A body of
+// several parts is also scanned whole, so a secret cut across parts is seen.
 func evidence(f *forge, body string) (pinned, error) {
-	c, err := f.post(body)
+	parts, err := boundary.EvidenceParts(body)
 	if err != nil {
 		return pinned{}, err
 	}
-	if c, err = f.source(c.ID); err != nil {
-		return pinned{}, err
+	if len(parts) > 1 {
+		if err := f.scan(body); err != nil {
+			return pinned{}, err
+		}
 	}
-	if c.Body != body {
-		return pinned{}, fmt.Errorf("comment %s stored other bytes than were scanned", c.URL)
+	a := boundary.Artifact{SHA256: boundary.BodyDigest(body)}
+	for _, part := range parts {
+		c, err := f.post(part)
+		if err != nil {
+			return pinned{}, err
+		}
+		if c, err = f.source(c.ID); err != nil {
+			return pinned{}, err
+		}
+		if c.Body != part {
+			return pinned{}, fmt.Errorf("comment %s stored other bytes than were scanned", c.URL)
+		}
+		if a.URL == "" {
+			a.URL = c.URL
+		} else {
+			a.Parts = append(a.Parts, c.URL)
+		}
 	}
-	return pinned{"posted", boundary.Artifact{SHA256: boundary.BodyDigest(c.Body), URL: c.URL}}, nil
+	return pinned{"posted", a}, nil
 }
 
 // current loads the chain and checks that the caller saw its latest record
@@ -197,12 +215,14 @@ func checkpoint(f *forge, previous int64, next boundary.Record) (Response, error
 		return Response{}, errors.New("intent_sha256 does not match the source issue; copy it from inspect")
 	}
 	for _, a := range next.Artifacts() {
-		ref, err := boundary.ParseCommentURL(a.URL)
-		if err != nil {
-			return Response{}, err
-		}
-		if ref.Repo != f.repo || ref.Issue != f.issue {
-			return Response{}, fmt.Errorf("evidence %s is not a comment on the source issue", a.URL)
+		for _, u := range a.URLs() {
+			ref, err := boundary.ParseCommentURL(u)
+			if err != nil {
+				return Response{}, err
+			}
+			if ref.Repo != f.repo || ref.Issue != f.issue {
+				return Response{}, fmt.Errorf("evidence %s is not a comment on the source issue", u)
+			}
 		}
 	}
 	h, err = f.append(h, next)
