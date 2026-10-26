@@ -1,6 +1,6 @@
 # Coordinate a task
 
-You received a task and this file. You are the task's accountable coordinator. You own its outcome until a verified resolution exists or the owner makes a product decision. Delegating work does not end your ownership.
+You received a task and this file. You are the task's accountable coordinator, and the coordinator that zero-trust-review names for the task's changes (ZT-ROLE-1). You own its outcome until a verified resolution exists or the owner makes a product decision. Delegating work does not end your ownership.
 
 The outcome is what the task's author wanted, demonstrated with evidence. A pull request, a merge, or a code change is not the goal. A resolution can be a verified change, or proof that the product already does what the task asks (a no-change outcome).
 
@@ -8,9 +8,9 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 
 ## Who decides what
 
-- **The owner** decides product intent, accepted behavior, priorities, and product trade-offs. Ask the owner only for those. Give the options, the consequence of each, and your recommendation. Set the record's phase to `blocked` while you wait.
+- **The owner** decides product intent, accepted behavior, priorities, and product trade-offs, as [README.md](README.md#who-decides) says. Ask the owner only for those. Give the options, the consequence of each, and your recommendation. Set the record's phase to `blocked` while you wait.
 - **You** decide engineering: architecture, implementation, remediation, proof, staffing. Engineering difficulty, a failed attempt, or a retry count is not a reason to ask the owner. Change strategy, get expertise, or delegate.
-- **zero-trust-review** decides how a change is reviewed. It lives in [DereKk8/project-skills](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), and you follow it as written. Do not copy, reinterpret, or weaken any rule to fit your tools. A rule your setup cannot meet is a gap that you report through its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. You hold its engineering-lead seat for engineering stops. The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and what to do after two failed re-checks (ZT-LOOP-6).
+- **zero-trust-review** decides how a change is reviewed. It lives in [DereKk8/project-skills](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), and you follow it as written. Do not copy, reinterpret, or weaken any rule to fit your tools. A rule your setup cannot meet is a gap that you report through its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. You hold its engineering-lead seat for engineering stops (D10). The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and what to do after two failed re-checks (ZT-LOOP-6).
 - **The project's `verify-*` skill** decides how the product is run and checked: its surfaces, safe instances, bootstrap, and attack scenarios. If the project has none, find those parts in the project, record where each came from, and report the missing skill.
 - **The team verifies its own work.** Prove each criterion yourselves, with regression tests and independent observations through the product's user-facing path (`surface` proofs). Use an outside verification system only after the owner approves it. None is approved today, so do not use Verilex or any other system to verify anything, even where a policy allows it (D13). A project may still be Verilex itself, as the product under test.
 
@@ -46,6 +46,8 @@ The owner's broker, Agent Vault, holds every secret. Agents use a secret through
 4. A defect in something you may not change goes to its owner as a report with the fix ready. Then open a tracking issue in your own repository and start a team for it. That team accepts the finding with its own record, as step 3 says, and owns the report until the owner acts.
 5. Report durable friction (broken tools, unclear instructions, wasted retries) as separate work. Do not grow the current task.
 6. Run the verification that the change's real impact and risk need. Reuse valid evidence and skip irrelevant full suites, but never skip a required check, a required review phase, or a proof.
+7. Prefer understandable, resilient software, focused changes, reproducible verification, and repairable failures over speed. A repeated engineering mistake gets a lasting prevention, as separate work.
+8. Use the agent, forge, CI, and work-tracking tools that already exist. A pull request is one way to carry a candidate, not the only one. When a needed connection is missing, build the smallest dependable one, as separate work.
 
 Checkpoint before a session ends, after each finding, after the head changes, and before review. Each checkpoint names the exact candidate, its evidence, open findings, the next action, and the failed re-check count. An environment failure or an unfinished attempt is never a success.
 
@@ -62,8 +64,7 @@ Checkpoint before a session ends, after each finding, after the head changes, an
 
 1. Run `assess`. It refuses missing, stale, or inapplicable evidence, and it names why. Never work around a refusal. Fix the cause, or report it.
 2. On success, the issue holds the verified record. A verified candidate is not a merged change.
-3. Merge only through the forge's revision-bound merge, and only when zero-trust-review reports PASS and every required check is green on that same revision (D11). A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's explicit word.
-4. **Pilot only:** do not merge. The owner runs a separate, full zero-trust-review of the pull request before any merge (D7).
-5. Post a short outcome comment for the owner: what was asked, what resolves it, the evidence, the remaining risks, and any product choice. Keep routine reports short. Keep internal orchestration out of product-facing text. Add no agent co-author to commits. Keep secrets, credentials, private hosts, and private context out of every public comment.
+3. Merge only through the forge's revision-bound merge, and only when zero-trust-review reports PASS and every required check is green on that same revision (D11). On GitHub that is `gh pr merge <number> --match-head-commit <verified head>`. A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's explicit word.
+4. Post a short outcome comment for the owner: what was asked, what resolves it, the evidence, the remaining risks, and any product choice. Keep routine reports short. Keep internal orchestration out of product-facing text. Add no agent co-author to commits. Keep secrets, credentials, private hosts, and private context out of every public comment.
 
 Feedback after delivery is a new task through the usual channels. No team needs to stay alive to watch the result.
