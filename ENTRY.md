@@ -56,7 +56,7 @@ Checkpoint before a session ends, after each finding, after the head changes, an
 3. Run the review exactly as zero-trust-review says, with fresh sessions in their seats. Isolation must be a mechanism, not an instruction: a reviewer that can read the issue thread, the pull request text, or CI output can see author claims (ZT-INDEP-2).
 4. Post each review part as its own comment on the source issue with `evidence`, in the order that docs/commands.md lists. A seat that cannot run the conductor gives you its part, and you post it. The conductor checks the order.
 5. Record the proofs, and checkpoint them. The verifier posts the report, then the receipt with the digests from that checkpoint. Then checkpoint the review.
-6. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record.
+6. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record. If the owner recounts them, pin the owner's decision as `recheck_basis` in the checkpoint that lowers the count. File each finding below the severity floor (ZT-SEV-1) as its own issue, and record it as `filed` with that issue.
 
 ## 5. Accept and report
 

@@ -56,6 +56,7 @@ type github struct {
 	scans        []string
 	leaks        string
 	scannerDown  bool
+	tracker      map[int]boundary.Issue
 }
 
 func newGitHub(t *testing.T) *github {
@@ -144,6 +145,15 @@ func (g *github) run(_ context.Context, input []byte, name string, args ...strin
 	switch {
 	case call == "api repos/o/r/issues/1 --jq {number,title,body,url:.html_url}":
 		return encoded(g.t, g.issue), nil
+	case strings.HasPrefix(call, "api repos/o/r/issues/") && strings.HasSuffix(call, " --jq {number,title,body,url:.html_url}"):
+		n, err := strconv.Atoi(strings.Fields(strings.TrimPrefix(call, "api repos/o/r/issues/"))[0])
+		if err != nil {
+			g.t.Fatal(err)
+		}
+		if issue, ok := g.tracker[n]; ok {
+			return encoded(g.t, issue), nil
+		}
+		return nil, errors.New("gh api: exit status 1: HTTP 404: Not Found")
 	case strings.HasPrefix(call, "api repos/o/r/issues/1/comments?per_page=100&page="):
 		page, err := strconv.Atoi(strings.Fields(strings.TrimPrefix(call, "api repos/o/r/issues/1/comments?per_page=100&page="))[0])
 		if err != nil {
@@ -358,6 +368,47 @@ func TestAssessRecordsTheVerifiedOutcome(t *testing.T) {
 	}
 }
 
+// below adds a below-floor finding (ZT-SEV-1) filed as tracker issue 3.
+func below(s *reviewed) {
+	s.g.tracker = map[int]boundary.Issue{3: {Number: 3, Title: "Clarify the drift wording", Body: "Below-floor finding F9.", URL: "https://github.com/o/r/issues/3"}}
+	s.record.Findings = append(s.record.Findings, boundary.Finding{ID: "F9", Scope: "in", Owner: "team-1", Disposition: "filed", Evidence: s.g.artifact("trigger: rare; harm: wording; disposition: file"), Filed: "https://github.com/o/r/issues/3"})
+}
+
+func TestAssessAcceptsFiledBelowFloorFindings(t *testing.T) {
+	s := setup(t, below)
+	if _, err := s.assess(t); err != nil {
+		t.Fatalf("a PASS with a filed below-floor finding was refused: %v", err)
+	}
+	for name, tc := range map[string]struct {
+		want   string
+		change func(*reviewed)
+	}{
+		"issue missing": {"404", func(s *reviewed) { s.g.tracker = nil }},
+		"pull request linked": {"not a pull request", func(s *reviewed) {
+			s.g.tracker[3] = boundary.Issue{Number: 3, Title: "A PR", Body: "x", URL: "https://github.com/o/r/pull/3"}
+		}},
+		"source issue linked": {"its own issue in the source repository", func(s *reviewed) { s.record.Findings[len(s.record.Findings)-1].Filed = issue1 }},
+		"other repository": {"its own issue in the source repository", func(s *reviewed) {
+			s.record.Findings[len(s.record.Findings)-1].Filed = "https://github.com/x/y/issues/3"
+		}},
+		"edited recheck basis": {"recheck_basis", func(s *reviewed) {
+			basis := s.g.artifact("Owner decision.")
+			s.record.RecheckBasis = &basis
+			s.g.comments[len(s.g.comments)-1].Body = "Edited decision."
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := setup(t, func(s *reviewed) {
+				below(s)
+				tc.change(s)
+			})
+			if _, err := s.assess(t); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestAssessVerifiesNoChangeOnTheDefaultBranch(t *testing.T) {
 	for status, want := range map[string]string{"ahead": "", "identical": "", "diverged": "not on the default branch"} {
 		t.Run(status, func(t *testing.T) {
@@ -540,7 +591,7 @@ func TestCheckpointRefusesUnauthorizedChanges(t *testing.T) {
 		{"weaker acceptance", "acceptance contract changed", func(_ *github, r *boundary.Record) { r.Acceptance[0].Requirement = "weaker" }},
 		{"new coordinator", "cannot change", func(_ *github, r *boundary.Record) { r.Coordinator = "team-9" }},
 		{"new author", "cannot change", func(_ *github, r *boundary.Record) { r.Author = "someone" }},
-		{"lower re-check count", "cannot decrease", func(_ *github, r *boundary.Record) { r.FailedRechecks = 0 }},
+		{"lower re-check count", "decreases only with a new recheck_basis", func(_ *github, r *boundary.Record) { r.FailedRechecks = 0 }},
 		{"wrong intent", "does not match the source issue", func(_ *github, r *boundary.Record) { r.IntentSHA256 = strings.Repeat("d", 64) }},
 		{"edited issue", "source issue changed", func(g *github, _ *boundary.Record) { g.issue.Title = "Another task" }},
 		{"evidence elsewhere", "not a comment on the source issue", func(_ *github, r *boundary.Record) {
@@ -560,6 +611,31 @@ func TestCheckpointRefusesUnauthorizedChanges(t *testing.T) {
 				t.Fatalf("output=%q error=%v posts=%d, want refusal %q", out, err, g.posts, tc.want)
 			}
 		})
+	}
+}
+
+func TestOwnerDecisionRecountsFailedRechecks(t *testing.T) {
+	g := newGitHub(t)
+	r := base(g)
+	r.FailedRechecks = 1
+	latest := g.store(0, r).ID
+	basis := g.artifact("Owner decision: that re-review was a fresh review, not a re-check.")
+	r.FailedRechecks, r.RecheckBasis = 0, &basis
+	out, err := checkpoint(t, g, latest, r)
+	if err != nil {
+		t.Fatalf("a recount with a new owner basis was refused: %v", err)
+	}
+	if !strings.Contains(out, `"failed_rechecks":0`) || !strings.Contains(out, `"recheck_basis":{"sha256":"`+basis.SHA256) {
+		t.Fatalf("the recount did not land: %s", out)
+	}
+	r.FailedRechecks = 1
+	latest = g.nextID
+	if _, err := checkpoint(t, g, latest, r); err != nil {
+		t.Fatal(err)
+	}
+	r.FailedRechecks = 0
+	if _, err := checkpoint(t, g, g.nextID, r); err == nil || !strings.Contains(err.Error(), "decreases only with a new recheck_basis") {
+		t.Fatalf("an old basis lowered the count again: %v", err)
 	}
 }
 

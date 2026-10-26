@@ -72,7 +72,8 @@ type Review struct {
 }
 
 // Finding is a confirmed defect. Evidence holds its trigger, harm and
-// smallest disposition. Accepted links the receiving team's record.
+// smallest disposition. Accepted links the receiving team's record. Filed
+// links the tracker issue of a finding below the severity floor (ZT-SEV-1).
 type Finding struct {
 	ID          string   `json:"id"`
 	Scope       string   `json:"scope"`
@@ -80,6 +81,7 @@ type Finding struct {
 	Disposition string   `json:"disposition"`
 	Evidence    Artifact `json:"evidence"`
 	Accepted    string   `json:"accepted,omitempty"`
+	Filed       string   `json:"filed,omitempty"`
 }
 
 type Check struct {
@@ -110,6 +112,7 @@ type Record struct {
 	Review         *Review     `json:"review,omitempty"`
 	Findings       []Finding   `json:"findings"`
 	FailedRechecks int         `json:"failed_rechecks"`
+	RecheckBasis   *Artifact   `json:"recheck_basis,omitempty"`
 	Next           string      `json:"next"`
 	Outcome        *Outcome    `json:"outcome,omitempty"`
 }
@@ -128,6 +131,11 @@ func (r Record) Validate() error {
 	}
 	if r.FailedRechecks < 0 {
 		return errors.New("failed_rechecks cannot be negative")
+	}
+	if r.RecheckBasis != nil {
+		if err := r.RecheckBasis.Validate(); err != nil {
+			return fmt.Errorf("recheck_basis: %w", err)
+		}
 	}
 	if r.Acceptance == nil || r.Proofs == nil || r.Findings == nil {
 		return errors.New("acceptance, proofs and findings must be arrays")
@@ -227,14 +235,18 @@ func validFindings(findings []Finding) error {
 			return fmt.Errorf("finding %s: %w", f.ID, err)
 		}
 		switch {
-		case f.Scope == "in" && (f.Disposition == "open" || f.Disposition == "fixed" || f.Disposition == "disproved") && f.Accepted == "":
-		case f.Scope == "out" && f.Disposition == "open" && f.Accepted == "":
-		case f.Scope == "out" && f.Disposition == "handed-off":
+		case f.Scope == "in" && (f.Disposition == "open" || f.Disposition == "fixed" || f.Disposition == "disproved") && f.Accepted == "" && f.Filed == "":
+		case f.Scope == "in" && f.Disposition == "filed" && f.Accepted == "":
+			if _, err := ParseIssueURL(f.Filed); err != nil {
+				return fmt.Errorf("finding %s: filed must link its tracker issue: %w", f.ID, err)
+			}
+		case f.Scope == "out" && f.Disposition == "open" && f.Accepted == "" && f.Filed == "":
+		case f.Scope == "out" && f.Disposition == "handed-off" && f.Filed == "":
 			if _, err := ParseCommentURL(f.Accepted); err != nil {
 				return fmt.Errorf("finding %s: accepted must link the receiving team's record: %w", f.ID, err)
 			}
 		default:
-			return fmt.Errorf("finding %s: scope in is open, fixed or disproved; scope out is open, or handed-off with accepted", f.ID)
+			return fmt.Errorf("finding %s: scope in is open, fixed, disproved, or filed with its issue; scope out is open, or handed-off with accepted", f.ID)
 		}
 	}
 	return nil
@@ -276,6 +288,9 @@ func (r Record) Artifacts() []Artifact {
 	for _, f := range r.Findings {
 		all = append(all, f.Evidence)
 	}
+	if r.RecheckBasis != nil {
+		all = append(all, *r.RecheckBasis)
+	}
 	return all
 }
 
@@ -287,8 +302,8 @@ func Transition(old, next Record) error {
 	if old.Coordinator != next.Coordinator || old.Author != next.Author {
 		return errors.New("the accountable coordinator and author identities cannot change")
 	}
-	if next.FailedRechecks < old.FailedRechecks {
-		return errors.New("the failed re-check count cannot decrease")
+	if next.FailedRechecks < old.FailedRechecks && (next.RecheckBasis == nil || reflect.DeepEqual(next.RecheckBasis, old.RecheckBasis)) {
+		return errors.New("the failed re-check count decreases only with a new recheck_basis: the pinned owner decision that recounts it")
 	}
 	if next.Phase == PhaseVerified {
 		same := next
@@ -298,6 +313,23 @@ func Transition(old, next Record) error {
 		}
 	}
 	return nil
+}
+
+var issueURL = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]{0,9})$`)
+
+// IssueRef locates one issue.
+type IssueRef struct {
+	Repo  string
+	Issue int
+}
+
+func ParseIssueURL(url string) (IssueRef, error) {
+	m := issueURL.FindStringSubmatch(url)
+	if m == nil {
+		return IssueRef{}, fmt.Errorf("%q is not a GitHub issue URL", url)
+	}
+	issue, err := strconv.Atoi(m[2])
+	return IssueRef{m[1], issue}, err
 }
 
 var commentURL = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]{0,9})#issuecomment-([1-9][0-9]{0,18})$`)

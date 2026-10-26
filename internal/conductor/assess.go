@@ -197,8 +197,32 @@ func resolved(f *forge, r boundary.Record) error {
 				return fmt.Errorf("finding %s: %w", finding.ID, err)
 			}
 		}
+		if finding.Disposition == "filed" {
+			if err := filed(f, finding); err != nil {
+				return fmt.Errorf("finding %s: %w", finding.ID, err)
+			}
+		}
+	}
+	if r.RecheckBasis != nil {
+		if _, err := f.evidence(*r.RecheckBasis); err != nil {
+			return fmt.Errorf("recheck_basis: %w", err)
+		}
 	}
 	return nil
+}
+
+// filed checks that a finding below the severity floor (ZT-SEV-1) has its
+// own issue in the project's tracker, separate from the source issue.
+func filed(f *forge, finding boundary.Finding) error {
+	ref, err := boundary.ParseIssueURL(finding.Filed)
+	if err != nil {
+		return err
+	}
+	if ref.Repo != f.repo || ref.Issue == f.issue {
+		return errors.New("a filed finding needs its own issue in the source repository")
+	}
+	_, err = f.issueAt(ref.Repo, ref.Issue)
+	return err
 }
 
 // accepted checks that a separate accountable owner took the finding: its

@@ -59,7 +59,13 @@ func (f *forge) issueURL() string {
 }
 
 func (f *forge) loadIssue() (boundary.Issue, error) {
-	data, err := f.api(f.issuePath(), "{number,title,body,url:.html_url}")
+	return f.issueAt(f.repo, f.issue)
+}
+
+// issueAt fetches issue n of repo. A pull request has another URL, so it is
+// refused.
+func (f *forge) issueAt(repo string, n int) (boundary.Issue, error) {
+	data, err := f.api(fmt.Sprintf("repos/%s/issues/%d", repo, n), "{number,title,body,url:.html_url}")
 	if err != nil {
 		return boundary.Issue{}, err
 	}
@@ -67,8 +73,8 @@ func (f *forge) loadIssue() (boundary.Issue, error) {
 	if err != nil {
 		return issue, err
 	}
-	if issue.Number != f.issue || issue.URL != f.issueURL() {
-		return issue, fmt.Errorf("forge returned %s for %s: name the repository exactly as GitHub does", issue.URL, f.issueURL())
+	if want := fmt.Sprintf("https://github.com/%s/issues/%d", repo, n); issue.Number != n || issue.URL != want {
+		return issue, fmt.Errorf("forge returned %s for %s: name the repository exactly as GitHub does, and link an issue, not a pull request", issue.URL, want)
 	}
 	return issue, nil
 }

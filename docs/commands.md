@@ -51,7 +51,7 @@ Each record is one issue comment. It starts with `<!-- lights-out:v2 -->`, then 
 - `phase` is `active`, `review`, or `blocked`. Use `blocked` while a decision waits for the owner. Only `assess` writes `verified`.
 - `candidate` is absent until a candidate exists. Then it is `{"kind":"change","head":"<40-hex>","pr":<number>}`, or `{"kind":"no-change","head":"<40-hex>","pr":0}` for an existing revision. Phase `review` needs a candidate.
 - These never change once recorded: `intent_sha256`, `acceptance`, `coordinator`, `author`. A changed issue or contract needs the owner's decision.
-- `failed_rechecks` never decreases.
+- `failed_rechecks` decreases only when the same checkpoint sets a new `recheck_basis`: the pinned artifact of the owner's decision that recounts it, such as a ruling that a review was not a re-check (ZT-LOOP-6). The conductor checks that the artifact is on the source issue and unchanged. It cannot prove that the owner wrote it.
 
 ### Proofs
 
@@ -69,7 +69,7 @@ Each entry proves one acceptance criterion on the exact candidate:
 {"id": "F1", "scope": "in", "owner": "<team>", "disposition": "open", "evidence": <artifact>}
 ```
 
-`evidence` records the trigger, the harm, and the smallest disposition. An in-scope finding is `open`, `fixed`, or `disproved`. An out-of-scope finding is `open` until a separate team accepts it. Then it is `handed-off`, `owner` names that team's coordinator, and `accepted` is the URL of that team's own Lights Out record comment on another issue. A filed issue that nobody took is not a handoff.
+`evidence` records the trigger, the harm, and the smallest disposition. An in-scope finding is `open`, `fixed`, `disproved`, or `filed`. `filed` is for a reproduced finding below the severity floor (ZT-SEV-1): `filed` then links its own issue in the source repository, such as `https://github.com/o/r/issues/7`, and the finding does not block `assess`. An out-of-scope finding is `open` until a separate team accepts it. Then it is `handed-off`, `owner` names that team's coordinator, and `accepted` is the URL of that team's own Lights Out record comment on another issue. A filed issue that nobody took is not a handoff.
 
 ### Review
 
@@ -112,7 +112,7 @@ The receipt is one JSON object in a json code fence. Copy `contract_sha256` and 
 1. The caller saw the latest record, the source issue is unchanged, and the record is in phase `review`.
 2. Fewer than two re-checks failed (ZT-LOOP-6).
 3. Every acceptance criterion has a proof, and every proof is for the candidate head.
-4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator.
+4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.
 5. The zero-trust-review identity on the policy's master branch is the one Lights Out follows. The conductor loads the file as sync-zero-trust step 1 does and checks its bytes against the blob ID.
 6. Every artifact is still its pinned bytes, is on the source issue, and was written by a repository writer.
 7. The review parts were posted in the order above.
