@@ -282,9 +282,11 @@ func setup(t *testing.T, change func(*reviewed)) *reviewed {
 	v.Sync = g.artifact(syncReply(followed(t), "ZT-ONE-1: met | assess checks it", "ZT-TWO-1: gap | not built | blocks: none"))
 	v.Intent = g.artifact("Intent reading: the stored value must survive a restart.")
 	v.Suspicions = g.artifact("S1: the value may be lost on restart.")
-	v.Surface = g.artifact("$ product get\nexpected 7, observed 7")
+	v.Surface = g.artifact("S1 disproved: $ product get\nexpected 7, observed 7")
 	v.Attack = g.artifact("attack: restart mid-write | safe: held")
-	s.record.Proofs = []boundary.Proof{{Criterion: "A1", Head: head, Kind: "surface", Build: "sha256:binary", Evidence: g.artifact("$ product set 7; product get\n7"), Observation: g.artifact("$ cat store\n7")}}
+	surface := v.Surface
+	s.record.Suspicions = []boundary.Suspicion{{ID: "S1", State: "disproved", By: "verify-seat", Evidence: &surface}}
+	s.record.Proofs = []boundary.Proof{{Criterion: "A1", Requirement: "keep the stored value", Head: head, Kind: "surface", Build: "sha256:binary", Evidence: g.artifact("$ product set 7; product get\n7"), Observation: g.artifact("$ cat store\n7")}}
 	v.Report = g.artifact("Skill identity: ...\nVerdict: PASS")
 	s.record.Findings = []boundary.Finding{{ID: "F1", Scope: "in", Owner: "team-1", Disposition: "fixed", Evidence: g.artifact("trigger: restart; harm: lost value; disposition: flush")}}
 	s.record.Review = v
@@ -365,6 +367,78 @@ func TestAssessRecordsTheVerifiedOutcome(t *testing.T) {
 	}
 	if !strings.Contains(out, `"phase":"verified"`) || !strings.Contains(out, fmt.Sprintf(`"latest":%d`, s.g.nextID)) {
 		t.Fatalf("inspect did not recover the outcome: %s", out)
+	}
+}
+
+// TestAssessRefusesUnjudgedAcceptance covers the three ways a run could pass
+// without a judgment that the record proves: a narrowed criterion, a closed
+// but unproven suspicion, and a judgment credited to the wrong seat.
+func TestAssessRefusesUnjudgedAcceptance(t *testing.T) {
+	accepted := map[string]func(*reviewed){
+		"a changed criterion with the owner's decision": func(s *reviewed) {
+			decision := s.g.artifact("Owner decision: A1 may be proved for restarts only.")
+			s.record.Proofs[0].Requirement, s.record.Proofs[0].Decision = "keep the stored value across restarts", &decision
+		},
+		"a suspicion reproduced as a finding": func(s *reviewed) {
+			s.record.Suspicions[0].State, s.record.Suspicions[0].Finding = "reproduced", "F1"
+		},
+		"a suspicion disproved in the reviewer's own part": func(s *reviewed) {
+			suspicions := s.record.Review.Suspicions
+			s.record.Suspicions[0].By, s.record.Suspicions[0].Evidence = "review-seat", &suspicions
+		},
+	}
+	for name, change := range accepted {
+		t.Run(name, func(t *testing.T) {
+			if _, err := setup(t, change).assess(t); err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+		})
+	}
+
+	refused := map[string]struct {
+		want   string
+		change func(*reviewed)
+	}{
+		"no requirement stated": {"must state the requirement it proves", func(s *reviewed) { s.record.Proofs[0].Requirement = "" }},
+		"a narrowed criterion": {"a changed criterion needs the owner's decision", func(s *reviewed) {
+			s.record.Proofs[0].Requirement = "keep the stored value while nothing else writes"
+		}},
+		"an edited owner decision": {"the decision for A1", func(s *reviewed) {
+			decision := s.g.artifact("Owner decision.")
+			s.record.Proofs[0].Requirement, s.record.Proofs[0].Decision = "narrower", &decision
+			s.g.comments[len(s.g.comments)-1].Body = "Edited."
+		}},
+		"an open suspicion": {"suspicion S1 is open", func(s *reviewed) {
+			s.record.Suspicions = []boundary.Suspicion{{ID: "S1", State: "open"}}
+		}},
+		"an untracked suspicion": {"names suspicion S1, which the record does not track", func(s *reviewed) {
+			s.record.Suspicions = nil
+		}},
+		"a reproduced suspicion without its finding": {"does not list as a finding", func(s *reviewed) {
+			s.record.Suspicions[0].State, s.record.Suspicions[0].Finding = "reproduced", "F7"
+		}},
+		"a judgment credited to another seat": {"neither the reviewer nor the verifier", func(s *reviewed) {
+			s.record.Suspicions[0].By = "team-1"
+		}},
+		"a verifier judgment that cites the reviewer's part": {"not a review part of verify-seat", func(s *reviewed) {
+			suspicions := s.record.Review.Suspicions
+			s.record.Suspicions[0].Evidence = &suspicions
+		}},
+		"a reviewer judgment that the reviewer never made": {"not a review part of review-seat", func(s *reviewed) {
+			s.record.Suspicions[0].By = "review-seat"
+		}},
+		"a cited part that does not name the suspicion": {"does not name it", func(s *reviewed) {
+			attack := s.record.Review.Attack
+			s.record.Suspicions[0].Evidence = &attack
+		}},
+	}
+	for name, tc := range refused {
+		t.Run(name, func(t *testing.T) {
+			s := setup(t, tc.change)
+			if _, err := s.assess(t); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -540,7 +614,9 @@ func (s *reviewed) reorder() {
 	v := s.record.Review
 	v.Intent = s.g.artifact("Intent reading again.")
 	v.Suspicions = s.g.artifact("S1 again.")
-	v.Surface = s.g.artifact("surface again")
+	v.Surface = s.g.artifact("S1 disproved again")
+	surface := v.Surface
+	s.record.Suspicions[0].Evidence = &surface
 	v.Attack = s.g.artifact("attack again")
 	p := &s.record.Proofs[0]
 	p.Evidence, p.Observation = s.g.artifact("evidence again"), s.g.artifact("observation again")

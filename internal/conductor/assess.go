@@ -3,6 +3,7 @@ package conductor
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -65,10 +66,20 @@ func ready(r boundary.Record) error {
 	if r.Review == nil {
 		return errors.New("the record has no independent review")
 	}
+	frozen := map[string]string{}
+	for _, c := range r.Acceptance {
+		frozen[c.ID] = c.Requirement
+	}
 	covered := map[string]bool{}
 	for _, p := range r.Proofs {
 		if p.Head != r.Candidate.Head {
 			return fmt.Errorf("the proof of %s is for %s, not the candidate %s: stale evidence", p.Criterion, p.Head, r.Candidate.Head)
+		}
+		if p.Requirement == "" {
+			return fmt.Errorf("the proof of %s must state the requirement it proves", p.Criterion)
+		}
+		if p.Requirement != frozen[p.Criterion] && p.Decision == nil {
+			return fmt.Errorf("the proof of %s proves %q, not the frozen %q: a changed criterion needs the owner's decision", p.Criterion, p.Requirement, frozen[p.Criterion])
 		}
 		covered[p.Criterion] = true
 	}
@@ -77,9 +88,19 @@ func ready(r boundary.Record) error {
 			return fmt.Errorf("acceptance %s has no proof", c.ID)
 		}
 	}
+	findings := map[string]bool{}
 	for _, f := range r.Findings {
 		if f.Disposition == "open" {
 			return fmt.Errorf("finding %s is open: fix or disprove an in-scope finding, and hand off an out-of-scope one", f.ID)
+		}
+		findings[f.ID] = true
+	}
+	for _, s := range r.Suspicions {
+		if s.State == "open" {
+			return fmt.Errorf("suspicion %s is open: reproduce or disprove it with evidence", s.ID)
+		}
+		if s.State == "reproduced" && !findings[s.Finding] {
+			return fmt.Errorf("suspicion %s was reproduced as %s, which the record does not list as a finding", s.ID, s.Finding)
 		}
 	}
 	return nil
@@ -128,45 +149,92 @@ func reviewed(f *forge, r boundary.Record, followed string) (window, error) {
 	if len(sync.Blocking) > 0 || sync.Incomplete != "none" {
 		return window{}, fmt.Errorf("the sync reports blocking gaps [%s] and incomplete parts %q: those parts are INCOMPLETE", strings.Join(sync.Blocking, " "), sync.Incomplete)
 	}
-	return window{suspicions.last, receipt.first}, endorsed(r, receipt.body, followed)
+	seats, err := endorsed(r, receipt.body, followed)
+	if err != nil {
+		return window{}, err
+	}
+	own := map[string][]part{
+		seats.Reviewer: {{v.Intent, intent.body}, {v.Suspicions, suspicions.body}},
+		seats.Verifier: {{v.Surface, surface.body}, {v.Attack, attack.body}, {v.Report, report.body}},
+	}
+	return window{suspicions.last, receipt.first}, judged(r, suspicions.body, own)
+}
+
+// part is one review part and the body it was fetched with.
+type part struct {
+	artifact boundary.Artifact
+	body     string
+}
+
+// judged checks that the record tracks every suspicion the saved review
+// names, and that each decided one cites the deciding seat's own review part,
+// which names it.
+func judged(r boundary.Record, review string, own map[string][]part) error {
+	tracked := map[string]boundary.Suspicion{}
+	for _, s := range r.Suspicions {
+		tracked[s.ID] = s
+	}
+	for _, id := range boundary.SuspicionIDs(review) {
+		if _, ok := tracked[id]; !ok {
+			return fmt.Errorf("the saved review names suspicion %s, which the record does not track", id)
+		}
+	}
+	for _, s := range r.Suspicions {
+		if s.State == "open" {
+			continue
+		}
+		parts, ok := own[s.By]
+		if !ok {
+			return fmt.Errorf("suspicion %s is attributed to %s, which is neither the reviewer nor the verifier of the receipt", s.ID, s.By)
+		}
+		i := slices.IndexFunc(parts, func(p part) bool { return reflect.DeepEqual(p.artifact, *s.Evidence) })
+		if i < 0 {
+			return fmt.Errorf("suspicion %s cites evidence that is not a review part of %s, the seat it is attributed to", s.ID, s.By)
+		}
+		if !slices.Contains(boundary.SuspicionIDs(parts[i].body), s.ID) {
+			return fmt.Errorf("suspicion %s cites a review part of %s that does not name it", s.ID, s.By)
+		}
+	}
+	return nil
 }
 
 // endorsed checks that the verifier's receipt binds a PASS to this candidate,
-// contract, proof set and report, from seats independent of the author.
-func endorsed(r boundary.Record, body, followed string) error {
+// contract, proof set and report, from seats independent of the author, and
+// returns it.
+func endorsed(r boundary.Record, body, followed string) (boundary.Receipt, error) {
 	receipt, err := boundary.ReceiptFrom(body)
 	if err != nil {
-		return err
+		return receipt, err
 	}
 	contract, err := boundary.Digest(r.Acceptance)
 	if err != nil {
-		return err
+		return receipt, err
 	}
 	proofs, err := boundary.Digest(r.Proofs)
 	if err != nil {
-		return err
+		return receipt, err
 	}
 	switch {
 	case receipt.Policy != followed:
-		return fmt.Errorf("the receipt follows %q, not %q", receipt.Policy, followed)
+		return receipt, fmt.Errorf("the receipt follows %q, not %q", receipt.Policy, followed)
 	case receipt.Head != r.Candidate.Head:
-		return fmt.Errorf("the receipt is for %s, not the candidate %s: stale verdict", receipt.Head, r.Candidate.Head)
+		return receipt, fmt.Errorf("the receipt is for %s, not the candidate %s: stale verdict", receipt.Head, r.Candidate.Head)
 	case receipt.Verdict != "PASS":
-		return fmt.Errorf("the review verdict is %s, not PASS", receipt.Verdict)
+		return receipt, fmt.Errorf("the review verdict is %s, not PASS", receipt.Verdict)
 	case receipt.ContractSHA256 != contract:
-		return errors.New("the receipt does not endorse this acceptance contract")
+		return receipt, errors.New("the receipt does not endorse this acceptance contract")
 	case receipt.ProofsSHA256 != proofs:
-		return errors.New("the receipt does not endorse these proofs")
+		return receipt, errors.New("the receipt does not endorse these proofs")
 	case receipt.ReportSHA256 != r.Review.Report.SHA256:
-		return errors.New("the receipt does not endorse this report")
+		return receipt, errors.New("the receipt does not endorse this report")
 	case receipt.Author != r.Author:
-		return fmt.Errorf("the receipt names author %s, but the record names %s", receipt.Author, r.Author)
+		return receipt, fmt.Errorf("the receipt names author %s, but the record names %s", receipt.Author, r.Author)
 	case receipt.Reviewer == r.Author || receipt.Verifier == r.Author:
-		return errors.New("the author cannot hold the reviewer or verifier seat")
+		return receipt, errors.New("the author cannot hold the reviewer or verifier seat")
 	case strings.EqualFold(strings.TrimSpace(receipt.AuthorFamily), strings.TrimSpace(receipt.ReviewerFamily)):
-		return errors.New("the reviewer must be a different model family from the author (ZT-MODEL-1)")
+		return receipt, errors.New("the reviewer must be a different model family from the author (ZT-MODEL-1)")
 	}
-	return nil
+	return receipt, nil
 }
 
 // proven fetches every proof again and checks that it was posted inside the
@@ -206,6 +274,13 @@ func resolved(f *forge, r boundary.Record) error {
 	if r.RecheckBasis != nil {
 		if _, err := f.evidence(*r.RecheckBasis); err != nil {
 			return fmt.Errorf("recheck_basis: %w", err)
+		}
+	}
+	for _, p := range r.Proofs {
+		if p.Decision != nil {
+			if _, err := f.evidence(*p.Decision); err != nil {
+				return fmt.Errorf("the decision for %s: %w", p.Criterion, err)
+			}
 		}
 	}
 	return nil
