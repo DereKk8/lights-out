@@ -58,8 +58,10 @@ Each record is one issue comment. It starts with `<!-- lights-out:v2 -->`, then 
 Each entry proves one acceptance criterion on the exact candidate:
 
 ```json
-{"criterion": "A1", "head": "<candidate head>", "kind": "surface", "build": "<identity of the tested artifact>", "evidence": <artifact>, "observation": <artifact>}
+{"criterion": "A1", "requirement": "<the criterion as this proof proves it>", "head": "<candidate head>", "kind": "surface", "build": "<identity of the tested artifact>", "evidence": <artifact>, "observation": <artifact>}
 ```
+
+`requirement` states what the proof proves. Copy it from the frozen `acceptance` text. A proof of anything else, such as a narrower reading, needs `decision`: the pinned artifact of the owner's decision that allows it. `assess` refuses a proof whose `requirement` differs from the frozen text without one. The conductor cannot prove that the owner wrote the decision.
 
 `evidence` holds the action and its result. `observation` is a separate comment with a second, independent observation of the result. `kind` is `surface`: the team's own test or observation through the product's user-facing path. No outside verification system is approved yet (D13), so no other kind exists.
 
@@ -70,6 +72,18 @@ Each entry proves one acceptance criterion on the exact candidate:
 ```
 
 `evidence` records the trigger, the harm, and the smallest disposition. An in-scope finding is `open`, `fixed`, `disproved`, or `filed`. `filed` is for a reproduced finding below the severity floor (ZT-SEV-1): `filed` then links its own issue in the source repository, such as `https://github.com/o/r/issues/7`, and the finding does not block `assess`. An out-of-scope finding is `open` until a separate team accepts it. Then it is `handed-off`, `owner` names that team's coordinator, and `accepted` is the URL of that team's own Lights Out record comment on another issue. A filed issue that nobody took is not a handoff.
+
+### Suspicions
+
+`suspicions` tracks every suspicion that the saved review names (S1, S2, and so on):
+
+```json
+{"id": "S1", "state": "open"}
+{"id": "S1", "state": "reproduced", "by": "<seat>", "evidence": <artifact>, "finding": "F3"}
+{"id": "S1", "state": "disproved", "by": "<seat>", "evidence": <artifact>}
+```
+
+A suspicion stays `open` until a seat reproduces or disproves it. No other state exists, so a suspicion that nobody could prove either way stays open and blocks `assess`. `by` is the reviewer or verifier named in the receipt. `evidence` is one of that seat's own review parts (`intent` or `suspicions` for the reviewer; `surface`, `attack` or `report` for the verifier), and that part must name the suspicion. A reproduced suspicion names the finding that records it.
 
 ### Review
 
@@ -111,15 +125,16 @@ The receipt is one JSON object in a json code fence. Copy `contract_sha256` and 
 
 1. The caller saw the latest record, the source issue is unchanged, and the record is in phase `review`.
 2. Fewer than two re-checks failed (ZT-LOOP-6).
-3. Every acceptance criterion has a proof, and every proof is for the candidate head.
+3. Every acceptance criterion has a proof, and every proof is for the candidate head. Each proof states the requirement it proves, and one that differs from the frozen text links an owner decision.
 4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.
 5. The zero-trust-review identity on the policy's master branch is the one Lights Out follows. The conductor loads the file as sync-zero-trust step 1 does and checks its bytes against the blob ID.
 6. Every artifact is still its pinned bytes, is on the source issue, and was written by a repository writer.
 7. The review parts were posted in the order above.
 8. The sync reply names the followed identity, maps every requirement ID of that version in file order, and has no blocking gap and no incomplete part.
 9. The receipt follows the same identity, says PASS for the candidate head, and endorses this contract, these proofs, and this report. The reviewer and verifier are not the author, and the reviewer's model family differs from the author's.
-10. For a change: the pull request is open, its head is the candidate, every required check passes, and the head does not move while checks are read. For no-change: the default branch contains the candidate.
-11. Nothing moved during assessment.
+10. The record tracks every suspicion that the saved review names. None is open, each reproduced one names a listed finding, and each decided one cites a review part of the seat it is attributed to, which names it.
+11. For a change: the pull request is open, its head is the candidate, every required check passes, and the head does not move while checks are read. For no-change: the default branch contains the candidate.
+12. Nothing moved during assessment.
 
 The verified record repeats the assessed record with phase `verified` and an `outcome`: the head and the required checks that passed. `assess` never merges.
 

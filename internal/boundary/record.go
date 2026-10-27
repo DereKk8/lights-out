@@ -50,13 +50,28 @@ func (a Artifact) URLs() []string { return append([]string{a.URL}, a.Parts...) }
 
 // Proof ties one acceptance criterion to evidence on the exact head. The only
 // kind is "surface": a Verilex proof kind waits for the owner (D13).
+// Requirement is the criterion as the proof proves it. When it differs from
+// the frozen text, Decision pins the owner's decision that allows it.
 type Proof struct {
-	Criterion   string   `json:"criterion"`
-	Head        string   `json:"head"`
-	Kind        string   `json:"kind"`
-	Build       string   `json:"build"`
-	Evidence    Artifact `json:"evidence"`
-	Observation Artifact `json:"observation"`
+	Criterion   string    `json:"criterion"`
+	Requirement string    `json:"requirement,omitempty"`
+	Head        string    `json:"head"`
+	Kind        string    `json:"kind"`
+	Build       string    `json:"build"`
+	Evidence    Artifact  `json:"evidence"`
+	Observation Artifact  `json:"observation"`
+	Decision    *Artifact `json:"decision,omitempty"`
+}
+
+// Suspicion tracks one suspicion of the saved review (ZT-INDEP-6). It stays
+// open until the seat By reproduces or disproves it, and Evidence is that
+// seat's own review part. A reproduced suspicion names its Finding.
+type Suspicion struct {
+	ID       string    `json:"id"`
+	State    string    `json:"state"`
+	By       string    `json:"by,omitempty"`
+	Evidence *Artifact `json:"evidence,omitempty"`
+	Finding  string    `json:"finding,omitempty"`
 }
 
 // Review pins one zero-trust-review run, field by field in the order in which
@@ -113,6 +128,7 @@ type Record struct {
 	Findings       []Finding   `json:"findings"`
 	FailedRechecks int         `json:"failed_rechecks"`
 	RecheckBasis   *Artifact   `json:"recheck_basis,omitempty"`
+	Suspicions     []Suspicion `json:"suspicions,omitempty"`
 	Next           string      `json:"next"`
 	Outcome        *Outcome    `json:"outcome,omitempty"`
 }
@@ -169,6 +185,11 @@ func (r Record) Validate() error {
 		if err := validArtifacts(p.Evidence, p.Observation); err != nil {
 			return err
 		}
+		if p.Decision != nil {
+			if err := p.Decision.Validate(); err != nil {
+				return fmt.Errorf("proof of %s: decision: %w", p.Criterion, err)
+			}
+		}
 		for _, u := range p.Observation.URLs() {
 			if slices.Contains(p.Evidence.URLs(), u) {
 				return errors.New("a proof's observation must be a separate comment from its evidence")
@@ -181,7 +202,49 @@ func (r Record) Validate() error {
 			return err
 		}
 	}
-	return validFindings(r.Findings)
+	if err := validFindings(r.Findings); err != nil {
+		return err
+	}
+	return validSuspicions(r.Suspicions)
+}
+
+var (
+	suspicionID      = regexp.MustCompile(`\bS[1-9][0-9]{0,3}\b`)
+	wholeSuspicionID = regexp.MustCompile(`^S[1-9][0-9]{0,3}$`)
+)
+
+// SuspicionIDs lists the suspicion IDs that a saved review names, in order.
+func SuspicionIDs(review string) []string {
+	var ids []string
+	for _, id := range suspicionID.FindAllString(review, -1) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func validSuspicions(suspicions []Suspicion) error {
+	seen := map[string]bool{}
+	for _, s := range suspicions {
+		if !wholeSuspicionID.MatchString(s.ID) || seen[s.ID] {
+			return fmt.Errorf("suspicion IDs must be unique, such as S1: %q", s.ID)
+		}
+		seen[s.ID] = true
+		switch {
+		case s.State == "open" && s.By == "" && s.Evidence == nil && s.Finding == "":
+		case s.State == "reproduced" && !blank(s.By, s.Finding) && s.Evidence != nil:
+		case s.State == "disproved" && !blank(s.By) && s.Evidence != nil && s.Finding == "":
+		default:
+			return fmt.Errorf("suspicion %s: open has nothing else; reproduced needs by, evidence and finding; disproved needs by and evidence", s.ID)
+		}
+		if s.Evidence != nil {
+			if err := s.Evidence.Validate(); err != nil {
+				return fmt.Errorf("suspicion %s: %w", s.ID, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (c *Candidate) validate() error {
@@ -290,6 +353,16 @@ func (r Record) Artifacts() []Artifact {
 	}
 	if r.RecheckBasis != nil {
 		all = append(all, *r.RecheckBasis)
+	}
+	for _, p := range r.Proofs {
+		if p.Decision != nil {
+			all = append(all, *p.Decision)
+		}
+	}
+	for _, s := range r.Suspicions {
+		if s.Evidence != nil {
+			all = append(all, *s.Evidence)
+		}
 	}
 	return all
 }

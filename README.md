@@ -56,4 +56,8 @@ Settled on October 26, 2026:
 - **Re-check recount:** the owner may rule that a review was not a re-check. The checkpoint that lowers the count pins that ruling as `recheck_basis` ([docs/commands.md](docs/commands.md)).
 - **Below-floor findings:** a finding below zero-trust-review's severity floor is filed as its own issue and does not block the gate ([docs/commands.md](docs/commands.md)).
 
+Settled on October 27, 2026, after an independent review found the pilot's first acceptance unsound:
+
+- **Judgments the gate checks:** a proof of anything other than the frozen criterion needs a linked owner decision; a suspicion stays open until a seat reproduces or disproves it with evidence; and every judgment cites the review part of the seat that made it ([docs/commands.md](docs/commands.md)).
+
 Open work with the owner's direction recorded: [#6](https://github.com/DereKk8/lights-out/issues/6) (an outside verification system), [#10](https://github.com/DereKk8/lights-out/issues/10) (cloud-first seats and their secrets), [#11](https://github.com/DereKk8/lights-out/issues/11) (resume a stopped team), and [#12](https://github.com/DereKk8/lights-out/issues/12) (Grok work through the Grok Bot team).

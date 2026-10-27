@@ -44,6 +44,7 @@ A requirement that can be checked is enforced by an executable check, not by a p
 | Acceptance needs exact-revision proof, a PASS receipt for the candidate, independent seats, the followed policy and a complete sync, resolved findings, accepted handoffs, and green required checks | `TestAssessRefusesUnsupportedAcceptance`, `TestAssessRecordsTheVerifiedOutcome`, `TestAssessVerifiesNoChangeOnTheDefaultBranch` |
 | The intent, the acceptance contract, and the coordinator and author stay fixed, and the re-check count falls only with a new owner basis | `TestCheckpointRefusesUnauthorizedChanges`, `TestOwnerDecisionRecountsFailedRechecks` |
 | A below-floor finding counts as resolved only with its own existing issue | `TestAssessAcceptsFiledBelowFloorFindings` |
+| A changed criterion needs a linked owner decision, a suspicion stays open until a seat reproduces or disproves it, and each judgment cites the deciding seat's own part | `TestAssessRefusesUnjudgedAcceptance` |
 | The history is append-only, unforked, canonical, and written only by repository writers | `TestInspectRefusesABrokenHistory`, `TestInspectSeparatesHistoryFromOtherComments`, `TestCheckpointProvesTheWriteLanded` |
 | State survives the session that wrote it | `TestCheckpointPersistsStateForAFreshSession` |
 | Evidence is pinned to its exact bytes, across every comment it spans | `TestArtifactPinsACommentForAssessment`, `TestLongEvidenceIsPinnedAcrossComments` |
