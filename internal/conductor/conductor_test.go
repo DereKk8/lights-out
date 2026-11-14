@@ -274,7 +274,14 @@ type reviewed struct {
 }
 
 func setup(t *testing.T, change func(*reviewed)) *reviewed {
-	g := newGitHub(t)
+	s := setupOn(t, newGitHub(t), change)
+	s.latest = s.g.store(0, s.record).ID
+	return s
+}
+
+// setupOn posts the review parts and the receipt on g, and returns the
+// review record without storing it.
+func setupOn(t *testing.T, g *github, change func(*reviewed)) *reviewed {
 	s := &reviewed{g: g, record: base(g)}
 	s.record.Phase, s.record.Next = boundary.PhaseReview, "assess"
 	s.record.Candidate = &boundary.Candidate{Kind: "change", Head: head, PR: 2}
@@ -294,12 +301,16 @@ func setup(t *testing.T, change func(*reviewed)) *reviewed {
 	if change != nil {
 		change(s)
 	}
-	s.seal(t)
+	s.receive(t)
 	return s
 }
 
-// seal posts the receipt for the record as it stands, then the record.
-func (s *reviewed) seal(t *testing.T) {
+// receive posts the receipt for the record as it stands, once the run has
+// its report.
+func (s *reviewed) receive(t *testing.T) {
+	if !s.record.Review.Report.Set() {
+		return
+	}
 	var err error
 	if s.receipt.ContractSHA256 == "" {
 		s.receipt.ContractSHA256, err = boundary.Digest(s.record.Acceptance)
@@ -319,7 +330,6 @@ func (s *reviewed) seal(t *testing.T) {
 	if s.record.Review.Receipt.URL == "" {
 		s.record.Review.Receipt = s.g.artifact(receiptBody(t, s.receipt))
 	}
-	s.latest = s.g.store(0, s.record).ID
 }
 
 func (s *reviewed) assess(t *testing.T) (string, error) {
@@ -541,14 +551,11 @@ func TestAssessRefusesUnsupportedAcceptance(t *testing.T) {
 		{name: "evidence on another issue", want: "not a comment on the source issue", before: func(s *reviewed) {
 			s.record.Review.Attack.URL = issue2 + "#issuecomment-104"
 		}},
-		{name: "intent after the review", want: "ZT-INDEP-1", before: func(s *reviewed) {
-			s.record.Review.Intent, s.record.Review.Suspicions = s.record.Review.Suspicions, s.record.Review.Intent
-		}},
-		{name: "proof before the saved review", want: "ZT-INDEP-7", before: func(s *reviewed) {
-			s.record.Review.Surface = s.record.Review.Sync
-		}},
-		{name: "proof outside the window", want: "between the saved review and the receipt", before: func(s *reviewed) {
-			s.record.Proofs[0].Observation = s.record.Review.Intent
+		{name: "review without its receipt", want: "not complete: it lacks receipt", before: func(s *reviewed) {
+			s.record.Review.Receipt = s.g.artifact("unused")
+		}, after: func(s *reviewed) {
+			s.record.Review.Receipt = boundary.Artifact{}
+			s.latest = s.g.store(s.latest, s.record).ID
 		}},
 		{name: "policy moved upstream", want: "zero-trust-review is now", after: func(s *reviewed) { s.g.policyCommit = moved }},
 		{name: "sync to another identity", want: "synced to", before: func(s *reviewed) {
@@ -888,6 +895,94 @@ func TestEditedIssueBecomesAnOwnerDecision(t *testing.T) {
 	refused("contract_basis changes only in the checkpoint that amends", r)
 }
 
+func TestReviewIsRecordedInThePolicyOrder(t *testing.T) {
+	// offer checkpoints the review record after a first record, and returns
+	// the conductor's answer.
+	offer := func(t *testing.T, change func(*reviewed)) (*reviewed, error) {
+		g := newGitHub(t)
+		first := base(g)
+		s := &reviewed{g: g, record: first}
+		s.latest = g.store(0, first).ID
+		full := setupOn(t, g, change)
+		s.record = full.record
+		out, err := checkpoint(t, g, s.latest, s.record)
+		if err != nil && (out != "" || g.posts != 0) {
+			t.Fatalf("a refused checkpoint wrote: output=%q posts=%d", out, g.posts)
+		}
+		s.latest = g.nextID
+		return s, err
+	}
+	refused := map[string]struct {
+		want   string
+		change func(*reviewed)
+	}{
+		"intent after the review": {"ZT-INDEP-1", func(s *reviewed) {
+			s.record.Review.Intent, s.record.Review.Suspicions = s.record.Review.Suspicions, s.record.Review.Intent
+		}},
+		"proof before the saved review": {"ZT-INDEP-7", func(s *reviewed) { s.record.Review.Surface = s.record.Review.Sync }},
+		"proof outside the window": {"between the saved review and the receipt", func(s *reviewed) {
+			s.record.Proofs[0].Observation = s.record.Review.Intent
+		}},
+		"a report part posted after the receipt": {"the report and receipt must follow proof", func(s *reviewed) {
+			s.receive(s.g.t)
+			s.record.Review.Report.Parts = []string{s.g.comment("late\n", written).URL}
+		}},
+		"a part without the part before it": {"review part suspicions needs intent first", func(s *reviewed) {
+			s.record.Review.Intent = boundary.Artifact{}
+		}},
+		"a report without the attack phase": {"review part report needs attack first", func(s *reviewed) {
+			s.record.Review.Attack = boundary.Artifact{}
+		}},
+	}
+	for name, tc := range refused {
+		t.Run(name, func(t *testing.T) {
+			if _, err := offer(t, tc.change); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	t.Run("a run is recorded part by part and a fresh session sees how far it got", func(t *testing.T) {
+		var whole boundary.Review
+		s, err := offer(t, func(s *reviewed) {
+			whole = *s.record.Review
+			s.record.Review = &boundary.Review{Sync: whole.Sync, Intent: whole.Intent, Suspicions: whole.Suspicions, Surface: whole.Surface}
+			s.record.Proofs, s.record.Suspicions = []boundary.Proof{}, nil
+			s.receipt.ProofsSHA256 = strings.Repeat("0", 64)
+		})
+		if err != nil {
+			t.Fatalf("a review in progress was refused: %v", err)
+		}
+		out, err := drive(t, s.g, `{"command":"inspect","repo":"o/r","issue":1}`)
+		if err != nil || !strings.Contains(out, `"surface":{`) || strings.Contains(out, `"attack":{`) || strings.Contains(out, `"receipt":{`) {
+			t.Fatalf("inspect does not show the run so far: %v %s", err, out)
+		}
+		if _, err := s.assess(t); err == nil || !strings.Contains(err.Error(), "not complete: it lacks attack, report, receipt") {
+			t.Fatalf("assess ran on a review in progress: %v", err)
+		}
+		s.record.Review.Attack = whole.Attack
+		if _, err := checkpoint(t, s.g, s.latest, s.record); err != nil {
+			t.Fatalf("the next part was refused: %v", err)
+		}
+	})
+
+	t.Run("a new candidate head starts a new run", func(t *testing.T) {
+		s, err := offer(t, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := s.record
+		r.Candidate = &boundary.Candidate{Kind: "change", Head: moved, PR: 2}
+		if _, err := checkpoint(t, s.g, s.latest, r); err == nil || !strings.Contains(err.Error(), "review part suspicions is from the run on "+head) {
+			t.Fatalf("the review of the old head was carried to the new one: %v", err)
+		}
+		r.Review = &boundary.Review{Sync: r.Review.Sync, Intent: r.Review.Intent}
+		if _, err := checkpoint(t, s.g, s.latest, r); err != nil {
+			t.Fatalf("a new run that keeps the sync and the intent reading was refused: %v", err)
+		}
+	})
+}
+
 func TestOwnerDecisionRecountsFailedRechecks(t *testing.T) {
 	g := newGitHub(t)
 	r := base(g)
@@ -1190,20 +1285,6 @@ func TestLongEvidenceIsPinnedAcrossComments(t *testing.T) {
 		}},
 		"parts are pinned out of order": {"which is not a later comment", func(s *reviewed, a boundary.Artifact) {
 			a.Parts[0], a.Parts[1] = a.Parts[1], a.Parts[0]
-			s.record.Review.Report = a
-		}},
-		"a part is posted after the receipt": {"the report and receipt must follow proof", func(s *reviewed, a boundary.Artifact) {
-			s.record.Review.Receipt = s.g.artifact(receiptBody(t, s.receipt))
-			var joined string
-			for _, u := range a.URLs() {
-				for _, c := range s.g.comments {
-					if c.URL == u {
-						joined += c.Body
-					}
-				}
-			}
-			a.Parts = append(a.Parts, s.g.comment("late\n", written).URL)
-			a.SHA256 = boundary.BodyDigest(joined + "late\n")
 			s.record.Review.Report = a
 		}},
 	} {

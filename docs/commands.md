@@ -102,7 +102,7 @@ A suspicion stays `open` until a seat reproduces or disproves it. No other state
 
 ### Review
 
-`review` pins one zero-trust-review run as seven artifacts, all comments on the source issue:
+`review` pins one zero-trust-review run as seven artifacts, all comments on the source issue. Record the run as it goes: a record holds the parts posted so far, so a fresh session sees how far the run got. A part is never recorded without the parts that come before it in this table. `surface` and `attack` may come in either order.
 
 | Field | Holds | Must be posted |
 |---|---|---|
@@ -115,6 +115,10 @@ A suspicion stays `open` until a seat reproduces or disproves it. No other state
 | `receipt` | the verifier's receipt | last |
 
 Every proof artifact must be posted after `suspicions` and before `receipt`.
+
+Every `checkpoint` checks this order, from the comment IDs in the artifact URLs, and refuses a record that breaks it. So a wrong order is refused when it is recorded, not at the gate.
+
+A new candidate head starts a new run. The checkpoint that changes the head may keep `sync` and `intent`, which do not depend on the head. It may not keep any other part of the earlier run.
 
 The receipt is one JSON object in a json code fence. Copy `contract_sha256` and `proofs_sha256` from the checkpoint that recorded the proofs. `report_sha256` is the `sha256` of the report artifact.
 
@@ -144,7 +148,7 @@ The receipt is one JSON object in a json code fence. Copy `contract_sha256` and 
 4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.
 5. The zero-trust-review identity on the policy's master branch is the one Lights Out follows. The conductor loads the file as sync-zero-trust step 1 does and checks its bytes against the blob ID.
 6. Every artifact is still its pinned bytes, is on the source issue, and was written by a repository writer.
-7. The review parts were posted in the order above.
+7. The review has all seven parts. Every record already holds them, and the proofs, in the order above.
 8. The sync reply names the followed identity, maps every requirement ID of that version in file order, and has no blocking gap and no incomplete part.
 9. The receipt follows the same identity, says PASS for the candidate head, and endorses this contract, these proofs, and this report. The reviewer and verifier are not the author, and the reviewer's model family differs from the author's.
 10. The record tracks every suspicion that the saved review names. None is open, each reproduced one names a listed finding, and each decided one cites a review part of the seat it is attributed to, which names it.

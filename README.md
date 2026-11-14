@@ -63,6 +63,7 @@ Settled on October 27, 2026, after an independent review found the pilot's first
 Settled on November 14, 2026, after an audit of the record's unchecked moves:
 
 - **Moves the record checks:** a finding never leaves the record; a verified task ends, and reopens only with a pinned reason; two failed re-checks stop the task until the owner re-scopes it; a blocked task pins its question and its answer; and the contract changes only with a pinned owner decision ([docs/commands.md](docs/commands.md)).
+- **Review runs:** a record holds a review as far as it got, each checkpoint checks its order, and a new candidate head starts a new run ([docs/commands.md](docs/commands.md)).
 - **Write races:** when two writers follow the same record, the first write continues the history and the later one is set aside. This replaces the earlier rule that such a record stops recovery ([docs/commands.md](docs/commands.md)).
 
 Open work with the owner's direction recorded: [#6](https://github.com/DereKk8/lights-out/issues/6) (an outside verification system), [#10](https://github.com/DereKk8/lights-out/issues/10) (cloud-first seats and their secrets), [#11](https://github.com/DereKk8/lights-out/issues/11) (resume a stopped team), and [#12](https://github.com/DereKk8/lights-out/issues/12) (Grok work through the Grok Bot team).

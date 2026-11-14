@@ -45,6 +45,25 @@ type Artifact struct {
 	Parts  []string `json:"parts,omitempty"`
 }
 
+// Set reports whether the artifact is recorded at all.
+func (a Artifact) Set() bool { return a.SHA256 != "" || a.URL != "" || len(a.Parts) > 0 }
+
+// span gives the IDs of the artifact's first and last comments, as its URLs
+// name them. It is meaningful only for a valid artifact.
+func (a Artifact) span() (first, last int64) {
+	for i, u := range a.URLs() {
+		ref, err := ParseCommentURL(u)
+		if err != nil {
+			return 0, 0
+		}
+		if i == 0 {
+			first = ref.ID
+		}
+		last = max(last, ref.ID)
+	}
+	return first, last
+}
+
 // URLs lists the artifact's comments in order.
 func (a Artifact) URLs() []string { return append([]string{a.URL}, a.Parts...) }
 
@@ -75,15 +94,97 @@ type Suspicion struct {
 }
 
 // Review pins one zero-trust-review run, field by field in the order in which
-// the policy requires each part to exist.
+// the policy requires each part to exist. A run is recorded as it goes: a
+// record holds the parts posted so far, and never a part without the parts
+// that the policy puts before it.
 type Review struct {
-	Sync       Artifact `json:"sync"`
-	Intent     Artifact `json:"intent"`
-	Suspicions Artifact `json:"suspicions"`
-	Surface    Artifact `json:"surface"`
-	Attack     Artifact `json:"attack"`
-	Report     Artifact `json:"report"`
-	Receipt    Artifact `json:"receipt"`
+	Sync       Artifact `json:"sync,omitzero"`
+	Intent     Artifact `json:"intent,omitzero"`
+	Suspicions Artifact `json:"suspicions,omitzero"`
+	Surface    Artifact `json:"surface,omitzero"`
+	Attack     Artifact `json:"attack,omitzero"`
+	Report     Artifact `json:"report,omitzero"`
+	Receipt    Artifact `json:"receipt,omitzero"`
+}
+
+// ReviewPart is one named part of a review run.
+type ReviewPart struct {
+	Name     string
+	Artifact Artifact
+}
+
+// stages lists the parts in policy order. The parts of one stage may be
+// posted in either order, and each stage follows the whole stage before it.
+func (v Review) stages() [][]ReviewPart {
+	return [][]ReviewPart{
+		{{"sync", v.Sync}}, {{"intent", v.Intent}}, {{"suspicions", v.Suspicions}},
+		{{"surface", v.Surface}, {"attack", v.Attack}}, {{"report", v.Report}}, {{"receipt", v.Receipt}},
+	}
+}
+
+// Missing names the parts that the run does not have yet, in policy order.
+func (v Review) Missing() []string {
+	var missing []string
+	for _, stage := range v.stages() {
+		for _, p := range stage {
+			if !p.Artifact.Set() {
+				missing = append(missing, p.Name)
+			}
+		}
+	}
+	return missing
+}
+
+// validate checks that the run is a prefix of the policy's order, and that
+// its comments and the proofs were posted in that order. Comment IDs grow
+// with time, and each artifact URL names its comment ID, so the order needs
+// no forge call.
+func (v Review) validate(proofs []Proof) error {
+	gap, before := "", int64(0)
+	for i, stage := range v.stages() {
+		first, last, missing := int64(0), int64(0), ""
+		for _, p := range stage {
+			if !p.Artifact.Set() {
+				missing = p.Name
+				continue
+			}
+			if gap != "" {
+				return fmt.Errorf("review part %s needs %s first: record the review in the policy's order", p.Name, gap)
+			}
+			if err := p.Artifact.Validate(); err != nil {
+				return fmt.Errorf("review part %s: %w", p.Name, err)
+			}
+			f, l := p.Artifact.span()
+			if first == 0 || f < first {
+				first = f
+			}
+			last = max(last, l)
+		}
+		if gap == "" {
+			gap = missing
+		}
+		if first == 0 {
+			continue
+		}
+		if first <= before && i <= 2 {
+			return errors.New("the sync, the saved intent reading and the saved review must be posted in that order (ZT-INDEP-1)")
+		}
+		if first <= before {
+			return errors.New("proof must follow the saved review, and the report and receipt must follow proof (ZT-INDEP-7)")
+		}
+		before = last
+	}
+	_, saved := v.Suspicions.span()
+	receipt, _ := v.Receipt.span()
+	for _, p := range proofs {
+		for _, a := range []Artifact{p.Evidence, p.Observation} {
+			first, last := a.span()
+			if v.Suspicions.Set() && first <= saved || v.Receipt.Set() && last >= receipt {
+				return fmt.Errorf("proof %s of %s was not posted between the saved review and the receipt", a.URL, p.Criterion)
+			}
+		}
+	}
+	return nil
 }
 
 // Finding is a confirmed defect. Evidence holds its trigger, harm and
@@ -216,8 +317,7 @@ func (r Record) Validate() error {
 		}
 	}
 	if r.Review != nil {
-		v := r.Review
-		if err := validArtifacts(v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt); err != nil {
+		if err := r.Review.validate(r.Proofs); err != nil {
 			return err
 		}
 	}
@@ -294,8 +394,8 @@ func (r Record) validatePhase() error {
 			return errors.New("phase review needs a candidate")
 		}
 	case PhaseVerified:
-		if r.Candidate == nil || r.Review == nil || r.Outcome == nil || r.Outcome.Head != r.Candidate.Head || r.Outcome.Checks == nil {
-			return errors.New("a verified record needs its candidate, review and outcome on the same head")
+		if r.Candidate == nil || r.Review == nil || len(r.Review.Missing()) > 0 || r.Outcome == nil || r.Outcome.Head != r.Candidate.Head || r.Outcome.Checks == nil {
+			return errors.New("a verified record needs its candidate, complete review and outcome on the same head")
 		}
 		for _, c := range r.Outcome.Checks {
 			if blank(c.Name) || c.Bucket != "pass" {
@@ -371,7 +471,13 @@ func (r Record) Artifacts() []Artifact {
 		all = append(all, p.Evidence, p.Observation)
 	}
 	if v := r.Review; v != nil {
-		all = append(all, v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt)
+		for _, stage := range v.stages() {
+			for _, p := range stage {
+				if p.Artifact.Set() {
+					all = append(all, p.Artifact)
+				}
+			}
+		}
 	}
 	for _, f := range r.Findings {
 		all = append(all, f.Evidence)
@@ -441,11 +547,32 @@ func Transition(old, next Record) error {
 	if err := keptFindings(old.Findings, next.Findings); err != nil {
 		return err
 	}
+	if err := freshReview(old, next); err != nil {
+		return err
+	}
 	if next.Phase == PhaseVerified {
 		same := next
 		same.Phase, same.Next, same.Outcome = old.Phase, old.Next, old.Outcome
 		if old.Phase != PhaseReview || !reflect.DeepEqual(old, same) {
 			return errors.New("a verified record must repeat the assessed review record")
+		}
+	}
+	return nil
+}
+
+// freshReview checks that a new candidate head starts a new review run. The
+// sync and the intent reading do not depend on the head, so they may carry
+// over. Every part that judges the candidate may not.
+func freshReview(old, next Record) error {
+	if old.Candidate == nil || next.Candidate == nil || old.Candidate.Head == next.Candidate.Head || old.Review == nil || next.Review == nil {
+		return nil
+	}
+	was := old.Review.stages()
+	for i, stage := range next.Review.stages() {
+		for j, p := range stage {
+			if i >= 2 && p.Artifact.Set() && reflect.DeepEqual(p.Artifact, was[i][j].Artifact) {
+				return fmt.Errorf("the candidate head changed, but review part %s is from the run on %s: a new head starts a new review run", p.Name, old.Candidate.Head)
+			}
 		}
 	}
 	return nil

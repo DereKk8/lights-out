@@ -25,11 +25,10 @@ func assess(f *forge, previous int64, followed string) (Response, error) {
 	if err := ready(r); err != nil {
 		return Response{}, err
 	}
-	order, err := reviewed(f, r, followed)
-	if err != nil {
+	if err := reviewed(f, r, followed); err != nil {
 		return Response{}, err
 	}
-	if err := proven(f, r, order); err != nil {
+	if err := proven(f, r); err != nil {
 		return Response{}, err
 	}
 	if err := resolved(f, r); err != nil {
@@ -62,6 +61,9 @@ func ready(r boundary.Record) error {
 	}
 	if r.Review == nil {
 		return errors.New("the record has no independent review")
+	}
+	if missing := r.Review.Missing(); len(missing) > 0 {
+		return fmt.Errorf("the independent review is not complete: it lacks %s", strings.Join(missing, ", "))
 	}
 	frozen := map[string]string{}
 	for _, c := range r.Acceptance {
@@ -103,58 +105,49 @@ func ready(r boundary.Record) error {
 	return nil
 }
 
-// window is the span of comment IDs in which proof had to be posted: after
-// the saved review and before the receipt that endorses it.
-type window struct{ after, before int64 }
-
-// reviewed checks the review record against the followed policy: its parts in
-// the required order, its sync map and the verifier's receipt.
-func reviewed(f *forge, r boundary.Record, followed string) (window, error) {
+// reviewed checks the complete review against the followed policy: its
+// pinned parts, its sync map and the verifier's receipt. The record itself
+// already holds the parts and the proofs in the required order.
+func reviewed(f *forge, r boundary.Record, followed string) error {
 	policy, err := f.policy()
 	if err != nil {
-		return window{}, err
+		return err
 	}
 	if policy.Identity != followed {
-		return window{}, fmt.Errorf("zero-trust-review is now %q, but this Lights Out follows %q: run sync-zero-trust and update Lights Out first", policy.Identity, followed)
+		return fmt.Errorf("zero-trust-review is now %q, but this Lights Out follows %q: run sync-zero-trust and update Lights Out first", policy.Identity, followed)
 	}
 	v := r.Review
 	var parts []span
 	for _, a := range []boundary.Artifact{v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt} {
 		c, err := f.evidence(a)
 		if err != nil {
-			return window{}, err
+			return err
 		}
 		parts = append(parts, c)
 	}
 	syncPart, intent, suspicions, surface, attack, report, receipt := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
-	if syncPart.last >= intent.first || intent.last >= suspicions.first {
-		return window{}, errors.New("the sync, the saved intent reading and the saved review must be posted in that order (ZT-INDEP-1)")
-	}
-	if suspicions.last >= min(surface.first, attack.first) || max(surface.last, attack.last) >= report.first || report.last >= receipt.first {
-		return window{}, errors.New("proof must follow the saved review, and the report and receipt must follow proof (ZT-INDEP-7)")
-	}
 	sync, err := boundary.SyncFrom(syncPart.body)
 	if err != nil {
-		return window{}, err
+		return err
 	}
 	if sync.Identity != followed {
-		return window{}, fmt.Errorf("the review synced to %q, not %q", sync.Identity, followed)
+		return fmt.Errorf("the review synced to %q, not %q", sync.Identity, followed)
 	}
 	if !slices.Equal(sync.IDs, policy.IDs) {
-		return window{}, errors.New("the sync map must give each requirement ID of the policy exactly once, in file order")
+		return errors.New("the sync map must give each requirement ID of the policy exactly once, in file order")
 	}
 	if len(sync.Blocking) > 0 || sync.Incomplete != "none" {
-		return window{}, fmt.Errorf("the sync reports blocking gaps [%s] and incomplete parts %q: those parts are INCOMPLETE", strings.Join(sync.Blocking, " "), sync.Incomplete)
+		return fmt.Errorf("the sync reports blocking gaps [%s] and incomplete parts %q: those parts are INCOMPLETE", strings.Join(sync.Blocking, " "), sync.Incomplete)
 	}
 	seats, err := endorsed(r, receipt.body, followed)
 	if err != nil {
-		return window{}, err
+		return err
 	}
 	own := map[string][]part{
 		seats.Reviewer: {{v.Intent, intent.body}, {v.Suspicions, suspicions.body}},
 		seats.Verifier: {{v.Surface, surface.body}, {v.Attack, attack.body}, {v.Report, report.body}},
 	}
-	return window{suspicions.last, receipt.first}, judged(r, suspicions.body, own)
+	return judged(r, suspicions.body, own)
 }
 
 // part is one review part and the body it was fetched with.
@@ -234,17 +227,12 @@ func endorsed(r boundary.Record, body, followed string) (boundary.Receipt, error
 	return receipt, nil
 }
 
-// proven fetches every proof again and checks that it was posted inside the
-// proof window.
-func proven(f *forge, r boundary.Record, w window) error {
+// proven fetches every proof again.
+func proven(f *forge, r boundary.Record) error {
 	for _, p := range r.Proofs {
 		for _, a := range []boundary.Artifact{p.Evidence, p.Observation} {
-			c, err := f.evidence(a)
-			if err != nil {
+			if _, err := f.evidence(a); err != nil {
 				return err
-			}
-			if c.first <= w.after || c.last >= w.before {
-				return fmt.Errorf("proof %s of %s was not posted between the saved review and the receipt", a.URL, p.Criterion)
 			}
 		}
 	}
