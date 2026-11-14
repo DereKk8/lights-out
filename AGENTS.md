@@ -50,6 +50,7 @@ A requirement that can be checked is enforced by an executable check, not by a p
 | A below-floor finding counts as resolved only with its own existing issue | `TestAssessAcceptsFiledBelowFloorFindings` |
 | A changed criterion needs a linked owner decision, a suspicion stays open until a seat reproduces or disproves it, and each judgment cites the deciding seat's own part | `TestAssessRefusesUnjudgedAcceptance` |
 | The history is append-only, canonical, and written only by repository writers, and when two writers follow one record the first write wins | `TestInspectRefusesABrokenHistory`, `TestInspectSeparatesHistoryFromOtherComments`, `TestCheckpointProvesTheWriteLanded`, `TestALostWriteRaceIsSetAside`, `TestCheckpointTellsTheLateWriterToInspect` |
+| A v2 chain continues into v3 under every v3 rule, so the format change cannot drop findings or reset counts | `TestAVersionTwoChainContinuesIntoVersionThree` |
 | State survives the session that wrote it | `TestCheckpointPersistsStateForAFreshSession` |
 | Evidence is pinned to its exact bytes, across every comment it spans | `TestArtifactPinsACommentForAssessment`, `TestLongEvidenceIsPinnedAcrossComments` |
 | Nothing goes public before a pinned secret scan passes | `TestEvidenceIsScannedBeforeItGoesPublic`, `TestExecutableRefusesASecretBeforeItGoesPublic` |
