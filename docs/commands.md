@@ -30,7 +30,7 @@ A network failure during a write is uncertain. Run `inspect` before you retry, a
 
 ## The record
 
-Each record is one issue comment. It starts with `<!-- lights-out:v2 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names the wrong predecessor is a fork, and it stops recovery: the conductor never picks a winner.
+Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names the wrong predecessor is a fork, and it stops recovery: the conductor never picks a winner.
 
 ```json
 {
@@ -72,6 +72,8 @@ Each entry proves one acceptance criterion on the exact candidate:
 ```
 
 `evidence` records the trigger, the harm, and the smallest disposition. An in-scope finding is `open`, `fixed`, `disproved`, or `filed`. `filed` is for a reproduced finding below the severity floor (ZT-SEV-1): `filed` then links its own issue in the source repository, such as `https://github.com/o/r/issues/7`, and the finding does not block `assess`. An out-of-scope finding is `open` until a separate team accepts it. Then it is `handed-off`, `owner` names that team's coordinator, and `accepted` is the URL of that team's own Lights Out record comment on another issue. A filed issue that nobody took is not a handoff.
+
+A finding never leaves the record. Each checkpoint lists every finding of the record before it. A finding changes `scope` only while it stays `open`. A closed finding changes only by going back to `open`, so `fixed` never becomes `disproved` in one step.
 
 ### Suspicions
 

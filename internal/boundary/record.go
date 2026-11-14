@@ -12,7 +12,7 @@ import (
 )
 
 // Marker opens every record comment. Its version names the comment format.
-const Marker = "<!-- lights-out:v2 -->"
+const Marker = "<!-- lights-out:v3 -->"
 
 const markerPrefix = "<!-- lights-out:"
 
@@ -378,11 +378,37 @@ func Transition(old, next Record) error {
 	if next.FailedRechecks < old.FailedRechecks && (next.RecheckBasis == nil || reflect.DeepEqual(next.RecheckBasis, old.RecheckBasis)) {
 		return errors.New("the failed re-check count decreases only with a new recheck_basis: the pinned owner decision that recounts it")
 	}
+	if err := keptFindings(old.Findings, next.Findings); err != nil {
+		return err
+	}
 	if next.Phase == PhaseVerified {
 		same := next
 		same.Phase, same.Next, same.Outcome = old.Phase, old.Next, old.Outcome
 		if old.Phase != PhaseReview || !reflect.DeepEqual(old, same) {
 			return errors.New("a verified record must repeat the assessed review record")
+		}
+	}
+	return nil
+}
+
+// keptFindings checks that next still lists every finding of old. A finding
+// changes scope only while it stays open, and a closed finding changes only
+// by reopening, so no defect leaves the record or changes its verdict in one
+// step.
+func keptFindings(old, next []Finding) error {
+	now := map[string]Finding{}
+	for _, f := range next {
+		now[f.ID] = f
+	}
+	for _, was := range old {
+		f, listed := now[was.ID]
+		switch {
+		case !listed:
+			return fmt.Errorf("finding %s left the record: a finding stays listed, so close it as fixed, disproved, filed or handed-off", was.ID)
+		case f.Scope != was.Scope && (f.Disposition != "open" || was.Disposition != "open"):
+			return fmt.Errorf("finding %s changed scope from %s to %s: only an open finding changes scope", was.ID, was.Scope, f.Scope)
+		case was.Disposition != "open" && f.Disposition != was.Disposition && f.Disposition != "open":
+			return fmt.Errorf("finding %s moved from %s to %s: reopen it first", was.ID, was.Disposition, f.Disposition)
 		}
 	}
 	return nil

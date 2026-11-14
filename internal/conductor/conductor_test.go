@@ -690,6 +690,54 @@ func TestCheckpointRefusesUnauthorizedChanges(t *testing.T) {
 	}
 }
 
+func TestCheckpointKeepsEveryFinding(t *testing.T) {
+	finding := func(g *github, id, scope, disposition string) boundary.Finding {
+		f := boundary.Finding{ID: id, Scope: scope, Owner: "team-1", Disposition: disposition, Evidence: g.artifact("trigger; harm; disposition")}
+		if disposition == "filed" {
+			f.Filed = "https://github.com/o/r/issues/3"
+		}
+		return f
+	}
+	tests := []struct {
+		name, want string
+		change     func(*boundary.Record)
+	}{
+		{"an open finding leaves the record", "finding F1 left the record", func(r *boundary.Record) { r.Findings = r.Findings[1:] }},
+		{"a closed finding leaves the record", "finding F2 left the record", func(r *boundary.Record) { r.Findings = r.Findings[:1] }},
+		{"a fixed finding becomes disproved", "moved from fixed to disproved: reopen it first", func(r *boundary.Record) { r.Findings[1].Disposition = "disproved" }},
+		{"a fixed finding becomes filed", "moved from fixed to filed", func(r *boundary.Record) {
+			r.Findings[1].Disposition, r.Findings[1].Filed = "filed", "https://github.com/o/r/issues/3"
+		}},
+		{"a closed finding changes scope", "only an open finding changes scope", func(r *boundary.Record) {
+			r.Findings[1].Scope, r.Findings[1].Disposition = "out", "open"
+		}},
+		{"an open finding is fixed", "", func(r *boundary.Record) { r.Findings[0].Disposition = "fixed" }},
+		{"an open finding moves out of scope", "", func(r *boundary.Record) { r.Findings[0].Scope = "out" }},
+		{"a fixed finding is reopened", "", func(r *boundary.Record) { r.Findings[1].Disposition = "open" }},
+		{"a new finding is added", "", func(r *boundary.Record) { r.Findings = append(r.Findings, r.Findings[0]); r.Findings[2].ID = "F3" }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newGitHub(t)
+			r := base(g)
+			r.Findings = []boundary.Finding{finding(g, "F1", "in", "open"), finding(g, "F2", "in", "fixed")}
+			latest := g.store(0, r).ID
+			r.Findings = slices.Clone(r.Findings)
+			tc.change(&r)
+			out, err := checkpoint(t, g, latest, r)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || out != "" || g.posts != 0 {
+				t.Fatalf("output=%q error=%v posts=%d, want refusal %q and no write", out, err, g.posts, tc.want)
+			}
+		})
+	}
+}
+
 func TestOwnerDecisionRecountsFailedRechecks(t *testing.T) {
 	g := newGitHub(t)
 	r := base(g)
@@ -747,6 +795,7 @@ func TestInspectSeparatesHistoryFromOtherComments(t *testing.T) {
 	g := newGitHub(t)
 	r := base(g)
 	g.comment("<!-- lights-out:v1 -->\n{\"previous\":0}", written)
+	g.comment("<!-- lights-out:v2 -->\n{\"previous\":0}", written)
 	forged, err := boundary.Render(boundary.Stored{Record: r})
 	if err != nil {
 		t.Fatal(err)
@@ -777,6 +826,12 @@ func TestInspectRefusesABrokenHistory(t *testing.T) {
 		"not canonical": func(g *github, r boundary.Record) {
 			c := g.store(0, r)
 			g.comments[0].Body = strings.Replace(c.Body, "**Lights Out record**", "**Verified**", 1)
+		},
+		"dropped finding": func(g *github, r boundary.Record) {
+			r.Findings = []boundary.Finding{{ID: "F1", Scope: "in", Owner: "team-1", Disposition: "open", Evidence: g.artifact("trigger; harm")}}
+			first := g.store(0, r)
+			r.Findings = []boundary.Finding{}
+			g.store(first.ID, r)
 		},
 		"bad transition": func(g *github, r boundary.Record) {
 			first := g.store(0, r)
@@ -989,8 +1044,8 @@ func TestEntryRejectsMalformedRequestsBeforeAnyToolRuns(t *testing.T) {
 		`{"command":"evidence","repo":"o/r","issue":1}`,
 		`{"command":"evidence","repo":"o/r","issue":1,"body":" \n "}`,
 		`{"command":"evidence","repo":"o/r","issue":1,"body":"x","comment":5}`,
-		`{"command":"evidence","repo":"o/r","issue":1,"body":"\n<!-- lights-out:v2 -->\nforged"}`,
-		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("a", boundary.MaxComment-1) + `\n<!-- lights-out:v2 -->\nforged"}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"\n<!-- lights-out:v3 -->\nforged"}`,
+		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("a", boundary.MaxComment-1) + `\n<!-- lights-out:v3 -->\nforged"}`,
 		`{"command":"evidence","repo":"o/r","issue":1,"body":"` + strings.Repeat("é", boundary.MaxParts*boundary.MaxComment+1) + `"}`,
 		`{"command":"inspect","repo":"o/r","issue":1,"body":"x"}`,
 		`{"command":"assess","repo":"o/r","issue":1,"record":` + valid + `}`,
