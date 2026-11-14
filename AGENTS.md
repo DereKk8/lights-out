@@ -48,7 +48,7 @@ A requirement that can be checked is enforced by an executable check, not by a p
 | Two failed re-checks stop the task in phase `blocked`, and a verified task reopens only with a pinned reason | `TestPhaseMovesAreNamed` |
 | A below-floor finding counts as resolved only with its own existing issue | `TestAssessAcceptsFiledBelowFloorFindings` |
 | A changed criterion needs a linked owner decision, a suspicion stays open until a seat reproduces or disproves it, and each judgment cites the deciding seat's own part | `TestAssessRefusesUnjudgedAcceptance` |
-| The history is append-only, unforked, canonical, and written only by repository writers | `TestInspectRefusesABrokenHistory`, `TestInspectSeparatesHistoryFromOtherComments`, `TestCheckpointProvesTheWriteLanded` |
+| The history is append-only, canonical, and written only by repository writers, and when two writers follow one record the first write wins | `TestInspectRefusesABrokenHistory`, `TestInspectSeparatesHistoryFromOtherComments`, `TestCheckpointProvesTheWriteLanded`, `TestALostWriteRaceIsSetAside`, `TestCheckpointTellsTheLateWriterToInspect` |
 | State survives the session that wrote it | `TestCheckpointPersistsStateForAFreshSession` |
 | Evidence is pinned to its exact bytes, across every comment it spans | `TestArtifactPinsACommentForAssessment`, `TestLongEvidenceIsPinnedAcrossComments` |
 | Nothing goes public before a pinned secret scan passes | `TestEvidenceIsScannedBeforeItGoesPublic`, `TestExecutableRefusesASecretBeforeItGoesPublic` |

@@ -20,16 +20,19 @@ type history struct {
 	url     string
 	record  *boundary.Record
 	ignored []Ignored
+	// passed holds the records that a later record already followed.
+	passed map[int64]bool
 }
 
-// load reads every comment page and rebuilds the record chain. A broken,
-// edited or forked chain stops the command: it never picks a winner.
+// load reads every comment page and rebuilds the record chain. A broken or
+// edited chain stops the command. A record that lost a write race is set
+// aside: the forge's comment order already decided which write came first.
 func (f *forge) load() (history, error) {
 	issue, err := f.loadIssue()
 	if err != nil {
 		return history{}, err
 	}
-	h := history{issue: issue}
+	h := history{issue: issue, passed: map[int64]bool{}}
 	for page := 1; page <= 100; page++ {
 		comments, err := f.commentsPage(page)
 		if err != nil {
@@ -70,6 +73,10 @@ func (h *history) add(f *forge, c boundary.Comment) error {
 	if err != nil {
 		return err
 	}
+	if h.record != nil && h.passed[stored.Previous] {
+		h.ignored = append(h.ignored, Ignored{c.URL, fmt.Sprintf("lost a write race: it names predecessor %d, which record %d had already followed", stored.Previous, h.latest)})
+		return nil
+	}
 	if stored.Previous != h.latest {
 		return fmt.Errorf("it names predecessor %d, but the latest record is %d: reconcile the competing writers before you continue", stored.Previous, h.latest)
 	}
@@ -78,6 +85,7 @@ func (h *history) add(f *forge, c boundary.Comment) error {
 			return err
 		}
 	}
+	h.passed[h.latest] = true
 	h.latest, h.url, h.record = c.ID, c.URL, &stored.Record
 	return nil
 }

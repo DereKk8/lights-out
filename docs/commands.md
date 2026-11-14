@@ -24,13 +24,13 @@ Every comment that the conductor posts is scanned first: evidence bodies and rec
 
 One GitHub comment holds at most 65536 characters. `evidence` posts a longer body in up to 8 comments, cut at line ends, and pins them all as one artifact: `url` is the first comment, `parts` lists the rest in order, and `sha256` covers all their bodies joined. Every part is scanned, and so is the whole body. `assess` checks every part again, and the whole artifact must sit in its place in the review order. No part may start with the record marker, so a body that would put the marker at the start of a part is refused. Pass the artifact on unchanged; never split a body yourself, because `artifact` pins only one comment.
 
-`ignored` lists record-like comments that are not part of the history: records in an earlier format, and records written by someone who cannot write to the repository. Read the earlier-format records as history, not state.
+`ignored` lists record-like comments that are not part of the history: records in an earlier format, records written by someone who cannot write to the repository, and records that lost a write race. Read the earlier-format records as history, not state.
 
 A network failure during a write is uncertain. Run `inspect` before you retry, and never retry a write blindly.
 
 ## The record
 
-Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names the wrong predecessor is a fork, and it stops recovery: the conductor never picks a winner.
+Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names an unknown predecessor stops recovery. When two writers follow the same record, the forge's comment order decides: the first one continues the history, and the later one is listed in `ignored` as a lost write race. Its writer gets a refusal and must `inspect` again.
 
 ```json
 {

@@ -918,9 +918,6 @@ func TestCheckpointProvesTheWriteLanded(t *testing.T) {
 		want   string
 		onPost func(*github, boundary.Record, int64)
 	}{
-		"concurrent writer forks the chain": {"reconcile the competing writers", func(g *github, r boundary.Record, latest int64) {
-			g.store(latest, r)
-		}},
 		"forge stores other bytes": {"did not land as the latest record", func(g *github, _ boundary.Record, _ int64) {
 			g.comments[len(g.comments)-1].Body = "<p>rewritten</p>"
 		}},
@@ -938,6 +935,53 @@ func TestCheckpointProvesTheWriteLanded(t *testing.T) {
 				t.Fatalf("error %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestALostWriteRaceIsSetAside(t *testing.T) {
+	g := newGitHub(t)
+	r := base(g)
+	latest := g.store(0, r).ID
+	// Another writer read the same latest record and landed first.
+	winner := g.store(latest, r).ID
+	r.Next = "the late writer's next action"
+	out, err := checkpoint(t, g, latest, r)
+	if err == nil || !strings.Contains(err.Error(), "stale predecessor") || out != "" || g.posts != 0 {
+		t.Fatalf("a stale write was not refused before the post: %v %s", err, out)
+	}
+	// The same race, lost between the read and the post.
+	g.store(latest, r)
+	g.store(0, r)
+	out, err = drive(t, g, `{"command":"inspect","repo":"o/r","issue":1}`)
+	if err != nil {
+		t.Fatalf("a lost race stopped recovery: %v", err)
+	}
+	if !strings.Contains(out, fmt.Sprintf(`"latest":%d`, winner)) || strings.Count(out, "lost a write race") != 2 || strings.Contains(out, "late writer") {
+		t.Fatalf("inspect did not keep the first writer and list the late ones: %s", out)
+	}
+	// The chain goes on after the winner.
+	if _, err := checkpoint(t, g, winner, r); err != nil {
+		t.Fatalf("the chain did not continue: %v", err)
+	}
+}
+
+func TestCheckpointTellsTheLateWriterToInspect(t *testing.T) {
+	g := newGitHub(t)
+	r := base(g)
+	latest := g.store(0, r).ID
+	g.onPost = func() {
+		// The late writer's comment gets a lower ID than its own reload sees
+		// as latest: another record followed the same predecessor first.
+		g.onPost = nil
+		late := g.comments[len(g.comments)-1]
+		g.comments = g.comments[:len(g.comments)-1]
+		g.store(latest, r)
+		late.ID, late.URL = g.nextID+1, fmt.Sprintf("%s#issuecomment-%d", issue1, g.nextID+1)
+		g.nextID++
+		g.comments = append(g.comments, late)
+	}
+	if _, err := checkpoint(t, g, latest, r); err == nil || !strings.Contains(err.Error(), "did not land as the latest record") {
+		t.Fatalf("the late writer was not told: %v", err)
 	}
 }
 
@@ -968,8 +1012,8 @@ func TestInspectSeparatesHistoryFromOtherComments(t *testing.T) {
 
 func TestInspectRefusesABrokenHistory(t *testing.T) {
 	tests := map[string]func(*github, boundary.Record){
-		"edited record": func(g *github, r boundary.Record) { g.store(0, r); g.comments[0].Updated = edited },
-		"forked chain":  func(g *github, r boundary.Record) { g.store(0, r); g.store(0, r) },
+		"edited record":       func(g *github, r boundary.Record) { g.store(0, r); g.comments[0].Updated = edited },
+		"unknown predecessor": func(g *github, r boundary.Record) { g.store(0, r); g.store(7, r) },
 		"hand-written": func(g *github, r boundary.Record) {
 			g.comment(boundary.Marker+"\n```json\n{}\n```\n\n</details>", written)
 		},
