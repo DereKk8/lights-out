@@ -24,7 +24,7 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 ## 2. Own and plan
 
 1. Name the coordinator identity (stable for the whole task), the author seat, and the CI-health owner.
-2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. A changed requirement, or a changed source issue, needs the owner's decision: ask as above, then amend the contract with the reply as `contract_basis`.
+2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. The contract changes only after the owner edits the source issue. Then ask as above, and amend the contract with the reply as `contract_basis`. Never amend the acceptance requirements on an unchanged issue.
 3. Fill each seat as zero-trust-review's model rules say (ZT-MODEL-4, ZT-MODEL-5), and record each seat's model in the evidence. The author seat writes product changes. You do not write product changes yourself unless you hold the author seat.
 4. Get the secrets ready before any seat starts. Follow the next section.
 5. Delegate bounded work when it helps. Use cheaper models only where they are adequate and no policy rule names a model. Parallelize only when it saves time. Start no standing workers or supervisors.

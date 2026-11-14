@@ -671,7 +671,7 @@ func TestCheckpointRefusesUnauthorizedChanges(t *testing.T) {
 		name, want string
 		change     func(*github, *boundary.Record)
 	}{
-		{"weaker acceptance", "acceptance contract changed", func(_ *github, r *boundary.Record) { r.Acceptance[0].Requirement = "weaker" }},
+		{"weaker acceptance", "changes only after the owner edits the source issue", func(_ *github, r *boundary.Record) { r.Acceptance[0].Requirement = "weaker" }},
 		{"new coordinator", "cannot change", func(_ *github, r *boundary.Record) { r.Coordinator = "team-9" }},
 		{"new author", "cannot change", func(_ *github, r *boundary.Record) { r.Author = "someone" }},
 		{"lower re-check count", "decreases only with a new recheck_basis", func(_ *github, r *boundary.Record) { r.FailedRechecks = 0 }},
@@ -888,7 +888,10 @@ func TestEditedIssueBecomesAnOwnerDecision(t *testing.T) {
 	}
 	latest = g.nextID
 	r.Acceptance = []boundary.Criterion{{ID: "A1", Requirement: "weaker"}}
-	refused("pinned as a new contract_basis", r)
+	refused("changes only after the owner edits the source issue", r)
+	narrowing := g.artifact("Owner: A1 may be narrower.")
+	r.ContractBasis = &narrowing
+	refused("changes only after the owner edits the source issue", r)
 	r.Acceptance = []boundary.Criterion{{ID: "A1", Requirement: "keep the stored value across restarts"}}
 	other := g.artifact("Not a contract decision.")
 	r.ContractBasis = &other
@@ -973,12 +976,16 @@ func TestReviewIsRecordedInThePolicyOrder(t *testing.T) {
 		}
 		r := s.record
 		r.Candidate = &boundary.Candidate{Kind: "change", Head: moved, PR: 2}
-		if _, err := checkpoint(t, s.g, s.latest, r); err == nil || !strings.Contains(err.Error(), "review part suspicions is from the run on "+head) {
+		if _, err := checkpoint(t, s.g, s.latest, r); err == nil || !strings.Contains(err.Error(), "review part intent is from the run on "+head) {
 			t.Fatalf("the review of the old head was carried to the new one: %v", err)
 		}
 		r.Review = &boundary.Review{Sync: r.Review.Sync, Intent: r.Review.Intent}
+		if _, err := checkpoint(t, s.g, s.latest, r); err == nil || !strings.Contains(err.Error(), "review part intent is from the run on "+head) {
+			t.Fatalf("the old reviewer's intent reading was carried to the new head: %v", err)
+		}
+		r.Review = &boundary.Review{Sync: r.Review.Sync}
 		if _, err := checkpoint(t, s.g, s.latest, r); err != nil {
-			t.Fatalf("a new run that keeps the sync and the intent reading was refused: %v", err)
+			t.Fatalf("a new run that keeps only the sync was refused: %v", err)
 		}
 	})
 }
@@ -1084,7 +1091,6 @@ func TestInspectSeparatesHistoryFromOtherComments(t *testing.T) {
 	g := newGitHub(t)
 	r := base(g)
 	g.comment("<!-- lights-out:v1 -->\n{\"previous\":0}", written)
-	g.comment("<!-- lights-out:v2 -->\n{\"previous\":0}", written)
 	forged, err := boundary.Render(boundary.Stored{Record: r})
 	if err != nil {
 		t.Fatal(err)
@@ -1102,6 +1108,71 @@ func TestInspectSeparatesHistoryFromOtherComments(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("inspect output %s lacks %s", out, want)
 		}
+	}
+}
+
+// legacy posts r as a v2 record after previous.
+func (g *github) legacy(previous int64, r boundary.Record) boundary.Comment {
+	body, err := boundary.Render(boundary.Stored{Previous: previous, Record: r})
+	if err != nil {
+		g.t.Fatal(err)
+	}
+	return g.comment(strings.Replace(body, boundary.Marker, boundary.LegacyMarker, 1), written)
+}
+
+func TestAVersionTwoChainContinuesIntoVersionThree(t *testing.T) {
+	start := func(t *testing.T) (*github, boundary.Record, int64) {
+		g := newGitHub(t)
+		r := base(g)
+		r.FailedRechecks = 1
+		r.Findings = []boundary.Finding{{ID: "F1", Scope: "in", Owner: "team-1", Disposition: "open", Evidence: g.artifact("trigger: restart; harm: lost value")}}
+		first := g.legacy(0, r).ID
+		r.Next = "fix F1"
+		return g, r, g.legacy(first, r).ID
+	}
+	g, r, latest := start(t)
+	out, err := drive(t, g, `{"command":"inspect","repo":"o/r","issue":1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, fmt.Sprintf(`"latest":%d`, latest)) || !strings.Contains(out, `"id":"F1"`) || !strings.Contains(out, `"failed_rechecks":1`) {
+		t.Fatalf("inspect did not recover the v2 state: %s", out)
+	}
+
+	for name, tc := range map[string]struct {
+		want     string
+		previous func(int64) int64
+		change   func(*boundary.Record)
+	}{
+		"a fresh chain": {"stale predecessor", func(int64) int64 { return 0 }, func(*boundary.Record) {}},
+		"a dropped finding": {"finding F1 left the record", func(l int64) int64 { return l }, func(r *boundary.Record) {
+			r.Findings = []boundary.Finding{}
+		}},
+		"a reset count": {"decreases only with a new recheck_basis", func(l int64) int64 { return l }, func(r *boundary.Record) {
+			r.FailedRechecks = 0
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, r, latest := start(t)
+			tc.change(&r)
+			if _, err := checkpoint(t, g, tc.previous(latest), r); err == nil || !strings.Contains(err.Error(), tc.want) || g.posts != 0 {
+				t.Fatalf("error=%v posts=%d, want refusal %q", err, g.posts, tc.want)
+			}
+		})
+	}
+
+	r.Next = "first v3 record"
+	if _, err := checkpoint(t, g, latest, r); err != nil {
+		t.Fatalf("the first v3 record was refused: %v", err)
+	}
+	v3 := g.nextID
+	g.legacy(v3, r)
+	out, err = drive(t, g, `{"command":"inspect","repo":"o/r","issue":1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, fmt.Sprintf(`"latest":%d`, v3)) || !strings.Contains(out, "a v2 record after the chain moved to v3") {
+		t.Fatalf("a late v2 record was not set aside: %s", out)
 	}
 }
 

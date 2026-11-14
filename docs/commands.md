@@ -32,6 +32,8 @@ A network failure during a write is uncertain. Run `inspect` before you retry, a
 
 Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names an unknown predecessor stops recovery. When two writers follow the same record, the forge's comment order decides: the first one continues the history, and the later one is listed in `ignored` as a lost write race. Its writer gets a refusal and must `inspect` again.
 
+A chain may start in the previous format, `<!-- lights-out:v2 -->`. The conductor reads those records under the v2 rules as the start of the chain. The first v3 record names the latest v2 record as its predecessor and passes every v3 rule against it, so a task in flight keeps its findings, its re-check count and its contract. A v2 record posted after the first v3 record is history, not state. Older formats are history only.
+
 ```json
 {
   "intent_sha256": "<from inspect>",
@@ -52,7 +54,7 @@ Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then 
 - A `verified` record is the end of the task. The only record that may follow it is a reopening: phase `active` with a new `reopened`, the pinned artifact that says why the verified outcome no longer holds. `reopened` changes in no other checkpoint.
 - `candidate` is absent until a candidate exists. Then it is `{"kind":"change","head":"<40-hex>","pr":<number>}`, or `{"kind":"no-change","head":"<40-hex>","pr":0}` for an existing revision. Phase `review` needs a candidate.
 - `coordinator` and `author` never change once recorded.
-- `intent_sha256` and `acceptance` are frozen. They change only in a checkpoint that sets a new `contract_basis`: the pinned artifact of the owner's decision that amends the contract.
+- `intent_sha256` and `acceptance` are frozen. They change only after the owner edits the source issue, in a checkpoint that takes the new `intent_sha256` and sets a new `contract_basis`: the pinned artifact of the owner's decision that amends the contract. On an unchanged issue, `acceptance` never changes.
 - `failed_rechecks` decreases only when the same checkpoint sets a new `recheck_basis`: the pinned artifact of the owner's decision that recounts it, such as a ruling that a review was not a re-check (ZT-LOOP-6). The conductor checks that the artifact is on the source issue and unchanged. It cannot prove that the owner wrote it.
 
 ### Waiting and owner decisions
@@ -118,7 +120,7 @@ Every proof artifact must be posted after `suspicions` and before `receipt`.
 
 Every `checkpoint` checks this order, from the comment IDs in the artifact URLs, and refuses a record that breaks it. So a wrong order is refused when it is recorded, not at the gate.
 
-A new candidate head starts a new run. The checkpoint that changes the head may keep `sync` and `intent`, which do not depend on the head. It may not keep any other part of the earlier run.
+A new candidate head starts a new run. The checkpoint that changes the head may keep `sync`, which maps the policy, not the candidate. It may not keep any other part of the earlier run, including `intent`: a re-check needs a fresh reviewer, who saves its own reading of the intent (ZT-INDEP-1, ZT-LOOP-2).
 
 The receipt is one JSON object in a json code fence. Copy `contract_sha256` and `proofs_sha256` from the checkpoint that recorded the proofs. `report_sha256` is the `sha256` of the report artifact.
 

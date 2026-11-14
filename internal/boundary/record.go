@@ -14,6 +14,11 @@ import (
 // Marker opens every record comment. Its version names the comment format.
 const Marker = "<!-- lights-out:v3 -->"
 
+// LegacyMarker opens a record in the previous format. A v2 chain is the start
+// of the v3 chain: the first v3 record follows the latest v2 record and
+// passes Transition, so a task in flight keeps its findings and counts.
+const LegacyMarker = "<!-- lights-out:v2 -->"
+
 const markerPrefix = "<!-- lights-out:"
 
 const (
@@ -256,7 +261,12 @@ type Stored struct {
 	Record   Record `json:"record"`
 }
 
-func (r Record) Validate() error {
+func (r Record) Validate() error { return r.validate(false) }
+
+// validate checks a record. A legacy record was valid under the v2 rules, so
+// the rules that v3 added do not apply to it: a blocked record without
+// waiting, and a review whose order v2 checked only in assess.
+func (r Record) validate(legacy bool) error {
 	if !hashPattern.MatchString(r.IntentSHA256) {
 		return errors.New("intent_sha256 must be the digest that inspect returns")
 	}
@@ -289,7 +299,7 @@ func (r Record) Validate() error {
 	if err := r.Candidate.validate(); err != nil {
 		return err
 	}
-	if err := r.validatePhase(); err != nil {
+	if err := r.validatePhase(legacy); err != nil {
 		return err
 	}
 	for _, p := range r.Proofs {
@@ -316,7 +326,12 @@ func (r Record) Validate() error {
 			}
 		}
 	}
-	if r.Review != nil {
+	if r.Review != nil && legacy {
+		v := r.Review
+		if err := validArtifacts(v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt); err != nil {
+			return err
+		}
+	} else if r.Review != nil {
 		if err := r.Review.validate(r.Proofs); err != nil {
 			return err
 		}
@@ -380,11 +395,11 @@ func (c *Candidate) validate() error {
 	return errors.New(`candidate kind must be "change" with its pr, or "no-change" with pr 0`)
 }
 
-func (r Record) validatePhase() error {
-	if r.FailedRechecks >= 2 && r.Phase != PhaseBlocked {
+func (r Record) validatePhase(legacy bool) error {
+	if r.FailedRechecks >= 2 && r.Phase != PhaseBlocked && !legacy {
 		return errors.New("two re-checks failed: the next step is the owner's re-scope decision (ZT-LOOP-6), so the phase must be blocked")
 	}
-	if (r.Phase == PhaseBlocked) != (r.Waiting != nil) {
+	if (r.Phase == PhaseBlocked) != (r.Waiting != nil) && !legacy {
 		return errors.New("phase blocked needs waiting, the pinned question that the task waits on, and no other phase has one")
 	}
 	switch r.Phase {
@@ -514,6 +529,9 @@ func Transition(old, next Record) error {
 	if !slices.Contains(moves[old.Phase], next.Phase) {
 		return fmt.Errorf("a %s record cannot be followed by a %s record", old.Phase, next.Phase)
 	}
+	if old.IntentSHA256 == next.IntentSHA256 && !reflect.DeepEqual(old.Acceptance, next.Acceptance) {
+		return errors.New("the acceptance contract changes only after the owner edits the source issue: then the record takes the new intent, the amended contract and a new contract_basis")
+	}
 	guarded := []struct {
 		due                bool
 		old, next          *Artifact
@@ -522,7 +540,7 @@ func Transition(old, next Record) error {
 		{old.Phase == PhaseVerified, old.Reopened, next.Reopened,
 			"a verified task reopens only with a new reopened: the pinned reason that the verified outcome no longer holds",
 			"reopened changes only in the checkpoint that reopens a verified task"},
-		{old.IntentSHA256 != next.IntentSHA256 || !reflect.DeepEqual(old.Acceptance, next.Acceptance), old.ContractBasis, next.ContractBasis,
+		{old.IntentSHA256 != next.IntentSHA256, old.ContractBasis, next.ContractBasis,
 			"the intent or acceptance contract changed: that needs the owner's product decision, pinned as a new contract_basis",
 			"contract_basis changes only in the checkpoint that amends the intent or the acceptance contract"},
 		{old.Phase == PhaseBlocked && next.Phase != PhaseBlocked, old.Answer, next.Answer,
@@ -560,9 +578,10 @@ func Transition(old, next Record) error {
 	return nil
 }
 
-// freshReview checks that a new candidate head starts a new review run. The
-// sync and the intent reading do not depend on the head, so they may carry
-// over. Every part that judges the candidate may not.
+// freshReview checks that a new candidate head starts a new review run. Only
+// the sync carries over: it maps the policy, not the candidate. A re-check
+// needs a fresh independent review, whose reviewer saves its own reading of
+// the intent (ZT-INDEP-1, ZT-LOOP-2).
 func freshReview(old, next Record) error {
 	if old.Candidate == nil || next.Candidate == nil || old.Candidate.Head == next.Candidate.Head || old.Review == nil || next.Review == nil {
 		return nil
@@ -570,7 +589,7 @@ func freshReview(old, next Record) error {
 	was := old.Review.stages()
 	for i, stage := range next.Review.stages() {
 		for j, p := range stage {
-			if i >= 2 && p.Artifact.Set() && reflect.DeepEqual(p.Artifact, was[i][j].Artifact) {
+			if i >= 1 && p.Artifact.Set() && reflect.DeepEqual(p.Artifact, was[i][j].Artifact) {
 				return fmt.Errorf("the candidate head changed, but review part %s is from the run on %s: a new head starts a new review run", p.Name, old.Candidate.Head)
 			}
 		}
@@ -646,9 +665,12 @@ func ParseCommentURL(url string) (CommentRef, error) {
 // IsRecord reports a comment in the current record format.
 func IsRecord(body string) bool { return strings.HasPrefix(body, Marker+"\n") }
 
-// IsRetiredRecord reports a record comment in an earlier format.
+// IsLegacyRecord reports a comment in the previous record format, v2.
+func IsLegacyRecord(body string) bool { return strings.HasPrefix(body, LegacyMarker+"\n") }
+
+// IsRetiredRecord reports a record comment in a format older than v2.
 func IsRetiredRecord(body string) bool {
-	return strings.HasPrefix(body, markerPrefix) && !IsRecord(body)
+	return strings.HasPrefix(body, markerPrefix) && !IsRecord(body) && !IsLegacyRecord(body)
 }
 
 const (
@@ -658,15 +680,21 @@ const (
 
 // Render is the one canonical comment form of a stored record: a summary line
 // for people, and the typed record folded below it.
-func Render(s Stored) (string, error) {
-	if err := s.Record.Validate(); err != nil {
+func Render(s Stored) (string, error) { return render(s, false) }
+
+func render(s Stored, legacy bool) (string, error) {
+	if err := s.Record.validate(legacy); err != nil {
 		return "", err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return "", err
 	}
-	return Marker + "\n" + summary(s.Record) + "\n\n<details><summary>Typed record</summary>\n\n" + fenceOpen + string(data) + fenceClose, nil
+	marker := Marker
+	if legacy {
+		marker = LegacyMarker
+	}
+	return marker + "\n" + summary(s.Record) + "\n\n<details><summary>Typed record</summary>\n\n" + fenceOpen + string(data) + fenceClose, nil
 }
 
 // The summary uses only validated fields, so free text cannot inject Markdown.
@@ -689,10 +717,15 @@ func summary(r Record) string {
 
 // StoredFrom accepts only a comment that is exactly the canonical rendering
 // of a valid record, so an edited or hand-written comment fails.
-func StoredFrom(body string) (Stored, error) {
+func StoredFrom(body string) (Stored, error) { return storedFrom(body, false) }
+
+// LegacyStoredFrom reads a v2 record the same way, under the v2 rules.
+func LegacyStoredFrom(body string) (Stored, error) { return storedFrom(body, true) }
+
+func storedFrom(body string, legacy bool) (Stored, error) {
 	var s Stored
 	start, end := strings.Index(body, fenceOpen), strings.LastIndex(body, fenceClose)
-	if !IsRecord(body) || start < 0 || end < start {
+	if (legacy && !IsLegacyRecord(body)) || (!legacy && !IsRecord(body)) || start < 0 || end < start {
 		return s, errors.New("record comment is malformed")
 	}
 	if err := decode([]byte(body[start+len(fenceOpen):end]), &s, true); err != nil {
@@ -701,10 +734,10 @@ func StoredFrom(body string) (Stored, error) {
 	if s.Previous < 0 {
 		return s, errors.New("record names a negative predecessor")
 	}
-	if err := s.Record.Validate(); err != nil {
+	if err := s.Record.validate(legacy); err != nil {
 		return s, err
 	}
-	canonical, err := Render(s)
+	canonical, err := render(s, legacy)
 	if err != nil {
 		return s, err
 	}

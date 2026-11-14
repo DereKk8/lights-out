@@ -22,6 +22,8 @@ type history struct {
 	ignored []Ignored
 	// passed holds the records that a later record already followed.
 	passed map[int64]bool
+	// current is set once the chain holds a record in the current format.
+	current bool
 }
 
 // load reads every comment page and rebuilds the record chain. A broken or
@@ -55,7 +57,12 @@ func (h *history) add(f *forge, c boundary.Comment) error {
 		h.ignored = append(h.ignored, Ignored{c.URL, "an earlier record format; read it as history, not state"})
 		return nil
 	}
-	if !boundary.IsRecord(c.Body) {
+	legacy := boundary.IsLegacyRecord(c.Body)
+	if legacy && h.current {
+		h.ignored = append(h.ignored, Ignored{c.URL, "a v2 record after the chain moved to v3; read it as history, not state"})
+		return nil
+	}
+	if !legacy && !boundary.IsRecord(c.Body) {
 		return nil
 	}
 	ok, err := f.writer(f.repo, c.Author)
@@ -69,24 +76,30 @@ func (h *history) add(f *forge, c boundary.Comment) error {
 	if c.Updated != c.Created {
 		return errors.New("it was edited after it was posted; records are append-only")
 	}
-	stored, err := boundary.StoredFrom(c.Body)
+	read := boundary.StoredFrom
+	if legacy {
+		read = boundary.LegacyStoredFrom
+	}
+	stored, err := read(c.Body)
 	if err != nil {
 		return err
 	}
-	if h.record != nil && h.passed[stored.Previous] {
+	if !legacy && h.record != nil && h.passed[stored.Previous] {
 		h.ignored = append(h.ignored, Ignored{c.URL, fmt.Sprintf("lost a write race: it names predecessor %d, which record %d had already followed", stored.Previous, h.latest)})
 		return nil
 	}
 	if stored.Previous != h.latest {
 		return fmt.Errorf("it names predecessor %d, but the latest record is %d: reconcile the competing writers before you continue", stored.Previous, h.latest)
 	}
-	if h.record != nil {
+	// v2 records were checked against each other by the v2 conductor. The
+	// first v3 record is checked against the latest v2 record.
+	if h.record != nil && !legacy {
 		if err := boundary.Transition(*h.record, stored.Record); err != nil {
 			return err
 		}
 	}
 	h.passed[h.latest] = true
-	h.latest, h.url, h.record = c.ID, c.URL, &stored.Record
+	h.latest, h.url, h.record, h.current = c.ID, c.URL, &stored.Record, h.current || !legacy
 	return nil
 }
 
