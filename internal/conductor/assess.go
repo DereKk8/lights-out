@@ -1,0 +1,362 @@
+package conductor
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/DereKk8/lights-out/internal/boundary"
+)
+
+// assess is the acceptance gate. It refuses unless the stored review record
+// proves the exact candidate under the followed policy, then appends the
+// verified outcome. It never merges.
+func assess(f *forge, previous int64, followed string) (Response, error) {
+	h, err := current(f, previous)
+	if err != nil {
+		return Response{}, err
+	}
+	if h.record == nil {
+		return Response{}, errors.New("the issue has no record to assess")
+	}
+	r := *h.record
+	if err := ready(r); err != nil {
+		return Response{}, err
+	}
+	if err := reviewed(f, r, followed); err != nil {
+		return Response{}, err
+	}
+	if err := proven(f, r); err != nil {
+		return Response{}, err
+	}
+	if err := resolved(f, r); err != nil {
+		return Response{}, err
+	}
+	outcome, err := integrated(f, *r.Candidate)
+	if err != nil {
+		return Response{}, err
+	}
+	latest, err := current(f, h.latest)
+	if err != nil {
+		return Response{}, fmt.Errorf("the issue changed during assessment: %w", err)
+	}
+	r.Phase, r.Outcome = boundary.PhaseVerified, &outcome
+	r.Next = "Verified. Integrate head " + outcome.Head + " through the forge's revision-bound merge, under the merge authority in the entry point."
+	if r.Candidate.Kind == "no-change" {
+		r.Next = "Verified no-change outcome at " + outcome.Head + ". Report it on the issue; nothing needs integration."
+	}
+	latest, err = f.append(latest, r)
+	if err != nil {
+		return Response{}, err
+	}
+	return recorded("verified", latest)
+}
+
+// ready holds the checks that need no forge call.
+func ready(r boundary.Record) error {
+	if r.Phase != boundary.PhaseReview {
+		return fmt.Errorf("the latest record is in phase %s; assess needs phase review", r.Phase)
+	}
+	if r.Review == nil {
+		return errors.New("the record has no independent review")
+	}
+	if missing := r.Review.Missing(); len(missing) > 0 {
+		return fmt.Errorf("the independent review is not complete: it lacks %s", strings.Join(missing, ", "))
+	}
+	frozen := map[string]string{}
+	for _, c := range r.Acceptance {
+		frozen[c.ID] = c.Requirement
+	}
+	covered := map[string]bool{}
+	for _, p := range r.Proofs {
+		if p.Head != r.Candidate.Head {
+			return fmt.Errorf("the proof of %s is for %s, not the candidate %s: stale evidence", p.Criterion, p.Head, r.Candidate.Head)
+		}
+		if p.Requirement == "" {
+			return fmt.Errorf("the proof of %s must state the requirement it proves", p.Criterion)
+		}
+		if p.Requirement != frozen[p.Criterion] && p.Decision == nil {
+			return fmt.Errorf("the proof of %s proves %q, not the frozen %q: a changed criterion needs the owner's decision", p.Criterion, p.Requirement, frozen[p.Criterion])
+		}
+		covered[p.Criterion] = true
+	}
+	for _, c := range r.Acceptance {
+		if !covered[c.ID] {
+			return fmt.Errorf("acceptance %s has no proof", c.ID)
+		}
+	}
+	findings := map[string]bool{}
+	for _, f := range r.Findings {
+		if f.Disposition == "open" {
+			return fmt.Errorf("finding %s is open: fix or disprove an in-scope finding, and hand off an out-of-scope one", f.ID)
+		}
+		findings[f.ID] = true
+	}
+	for _, s := range r.Suspicions {
+		if s.State == "open" {
+			return fmt.Errorf("suspicion %s is open: reproduce or disprove it with evidence", s.ID)
+		}
+		if s.State == "reproduced" && !findings[s.Finding] {
+			return fmt.Errorf("suspicion %s was reproduced as %s, which the record does not list as a finding", s.ID, s.Finding)
+		}
+	}
+	return nil
+}
+
+// reviewed checks the complete review against the followed policy: its
+// pinned parts, its sync map and the verifier's receipt. The record itself
+// already holds the parts and the proofs in the required order.
+func reviewed(f *forge, r boundary.Record, followed string) error {
+	policy, err := f.policy()
+	if err != nil {
+		return err
+	}
+	if policy.Identity != followed {
+		return fmt.Errorf("zero-trust-review is now %q, but this Lights Out follows %q: run sync-zero-trust and update Lights Out first", policy.Identity, followed)
+	}
+	v := r.Review
+	var parts []span
+	for _, a := range []boundary.Artifact{v.Sync, v.Intent, v.Suspicions, v.Surface, v.Attack, v.Report, v.Receipt} {
+		c, err := f.evidence(a)
+		if err != nil {
+			return err
+		}
+		parts = append(parts, c)
+	}
+	syncPart, intent, suspicions, surface, attack, report, receipt := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
+	sync, err := boundary.SyncFrom(syncPart.body)
+	if err != nil {
+		return err
+	}
+	if sync.Identity != followed {
+		return fmt.Errorf("the review synced to %q, not %q", sync.Identity, followed)
+	}
+	if !slices.Equal(sync.IDs, policy.IDs) {
+		return errors.New("the sync map must give each requirement ID of the policy exactly once, in file order")
+	}
+	if len(sync.Blocking) > 0 || sync.Incomplete != "none" {
+		return fmt.Errorf("the sync reports blocking gaps [%s] and incomplete parts %q: those parts are INCOMPLETE", strings.Join(sync.Blocking, " "), sync.Incomplete)
+	}
+	seats, err := endorsed(r, receipt.body, followed)
+	if err != nil {
+		return err
+	}
+	own := map[string][]part{
+		seats.Reviewer: {{v.Intent, intent.body}, {v.Suspicions, suspicions.body}},
+		seats.Verifier: {{v.Surface, surface.body}, {v.Attack, attack.body}, {v.Report, report.body}},
+	}
+	return judged(r, suspicions.body, own)
+}
+
+// part is one review part and the body it was fetched with.
+type part struct {
+	artifact boundary.Artifact
+	body     string
+}
+
+// judged checks that the record tracks every suspicion the saved review
+// names, and that each decided one cites the deciding seat's own review part,
+// which names it.
+func judged(r boundary.Record, review string, own map[string][]part) error {
+	tracked := map[string]boundary.Suspicion{}
+	for _, s := range r.Suspicions {
+		tracked[s.ID] = s
+	}
+	for _, id := range boundary.SuspicionIDs(review) {
+		if _, ok := tracked[id]; !ok {
+			return fmt.Errorf("the saved review names suspicion %s, which the record does not track", id)
+		}
+	}
+	for _, s := range r.Suspicions {
+		if s.State == "open" {
+			continue
+		}
+		parts, ok := own[s.By]
+		if !ok {
+			return fmt.Errorf("suspicion %s is attributed to %s, which is neither the reviewer nor the verifier of the receipt", s.ID, s.By)
+		}
+		i := slices.IndexFunc(parts, func(p part) bool { return reflect.DeepEqual(p.artifact, *s.Evidence) })
+		if i < 0 {
+			return fmt.Errorf("suspicion %s cites evidence that is not a review part of %s, the seat it is attributed to", s.ID, s.By)
+		}
+		if !slices.Contains(boundary.SuspicionIDs(parts[i].body), s.ID) {
+			return fmt.Errorf("suspicion %s cites a review part of %s that does not name it", s.ID, s.By)
+		}
+	}
+	return nil
+}
+
+// endorsed checks that the verifier's receipt binds a PASS to this candidate,
+// contract, proof set and report, from seats independent of the author, and
+// returns it.
+func endorsed(r boundary.Record, body, followed string) (boundary.Receipt, error) {
+	receipt, err := boundary.ReceiptFrom(body)
+	if err != nil {
+		return receipt, err
+	}
+	contract, err := boundary.Digest(r.Acceptance)
+	if err != nil {
+		return receipt, err
+	}
+	proofs, err := boundary.Digest(r.Proofs)
+	if err != nil {
+		return receipt, err
+	}
+	switch {
+	case receipt.Policy != followed:
+		return receipt, fmt.Errorf("the receipt follows %q, not %q", receipt.Policy, followed)
+	case receipt.Head != r.Candidate.Head:
+		return receipt, fmt.Errorf("the receipt is for %s, not the candidate %s: stale verdict", receipt.Head, r.Candidate.Head)
+	case receipt.Verdict != "PASS":
+		return receipt, fmt.Errorf("the review verdict is %s, not PASS", receipt.Verdict)
+	case receipt.ContractSHA256 != contract:
+		return receipt, errors.New("the receipt does not endorse this acceptance contract")
+	case receipt.ProofsSHA256 != proofs:
+		return receipt, errors.New("the receipt does not endorse these proofs")
+	case receipt.ReportSHA256 != r.Review.Report.SHA256:
+		return receipt, errors.New("the receipt does not endorse this report")
+	case receipt.Author != r.Author:
+		return receipt, fmt.Errorf("the receipt names author %s, but the record names %s", receipt.Author, r.Author)
+	case receipt.Reviewer == r.Author || receipt.Verifier == r.Author:
+		return receipt, errors.New("the author cannot hold the reviewer or verifier seat")
+	case strings.EqualFold(strings.TrimSpace(receipt.AuthorFamily), strings.TrimSpace(receipt.ReviewerFamily)):
+		return receipt, errors.New("the reviewer must be a different model family from the author (ZT-MODEL-1)")
+	}
+	return receipt, nil
+}
+
+// proven fetches every proof again.
+func proven(f *forge, r boundary.Record) error {
+	for _, p := range r.Proofs {
+		for _, a := range []boundary.Artifact{p.Evidence, p.Observation} {
+			if _, err := f.evidence(a); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// resolved checks each finding's evidence and each handoff's acceptance.
+func resolved(f *forge, r boundary.Record) error {
+	for _, finding := range r.Findings {
+		if _, err := f.evidence(finding.Evidence); err != nil {
+			return fmt.Errorf("finding %s: %w", finding.ID, err)
+		}
+		if finding.Scope == "out" {
+			if err := accepted(f, r, finding); err != nil {
+				return fmt.Errorf("finding %s: %w", finding.ID, err)
+			}
+		}
+		if finding.Disposition == "filed" {
+			if err := filed(f, finding); err != nil {
+				return fmt.Errorf("finding %s: %w", finding.ID, err)
+			}
+		}
+	}
+	for _, p := range r.Pins() {
+		if p.Artifact != nil {
+			if _, err := f.evidence(*p.Artifact); err != nil {
+				return fmt.Errorf("%s: %w", p.Name, err)
+			}
+		}
+	}
+	for _, p := range r.Proofs {
+		if p.Decision != nil {
+			if _, err := f.evidence(*p.Decision); err != nil {
+				return fmt.Errorf("the decision for %s: %w", p.Criterion, err)
+			}
+		}
+	}
+	return nil
+}
+
+// filed checks that a finding below the severity floor (ZT-SEV-1) has its
+// own issue in the project's tracker, separate from the source issue.
+func filed(f *forge, finding boundary.Finding) error {
+	ref, err := boundary.ParseIssueURL(finding.Filed)
+	if err != nil {
+		return err
+	}
+	if ref.Repo != f.repo || ref.Issue == f.issue {
+		return errors.New("a filed finding needs its own issue in the source repository")
+	}
+	_, err = f.issueAt(ref.Repo, ref.Issue)
+	return err
+}
+
+// accepted checks that a separate accountable owner took the finding: its
+// own Lights Out record on another issue, under the owner the finding names.
+func accepted(f *forge, r boundary.Record, finding boundary.Finding) error {
+	ref, err := boundary.ParseCommentURL(finding.Accepted)
+	if err != nil {
+		return err
+	}
+	if ref.Repo == f.repo && ref.Issue == f.issue {
+		return errors.New("a handoff must be accepted on another issue")
+	}
+	c, err := f.comment(ref.Repo, ref.ID)
+	if err != nil {
+		return err
+	}
+	ok, err := f.writer(ref.Repo, c.Author)
+	if err != nil {
+		return err
+	}
+	if c.URL != finding.Accepted || !ok || c.Updated != c.Created {
+		return errors.New("the acceptance must be an unedited record comment from a writer of its repository")
+	}
+	stored, err := boundary.StoredFrom(c.Body)
+	if err != nil {
+		return fmt.Errorf("the acceptance is not a Lights Out record: %w", err)
+	}
+	if stored.Record.Coordinator == r.Coordinator || stored.Record.Coordinator != finding.Owner {
+		return fmt.Errorf("the acceptance is by %s; it must be by the finding's owner %s, separate from this team", stored.Record.Coordinator, finding.Owner)
+	}
+	return nil
+}
+
+// integrated checks the candidate on the forge: an open pull request whose
+// head stays the candidate while every required check passes, or for a
+// no-change outcome a revision that the default branch contains.
+func integrated(f *forge, c boundary.Candidate) (boundary.Outcome, error) {
+	if c.Kind == "no-change" {
+		ok, err := f.shipped(c.Head)
+		if err != nil {
+			return boundary.Outcome{}, err
+		}
+		if !ok {
+			return boundary.Outcome{}, fmt.Errorf("the no-change candidate %s is not on the default branch", c.Head)
+		}
+		return boundary.Outcome{Head: c.Head, Checks: []boundary.Check{}}, nil
+	}
+	before, err := f.pull(c.PR)
+	if err != nil {
+		return boundary.Outcome{}, err
+	}
+	if before.State != "OPEN" {
+		return boundary.Outcome{}, fmt.Errorf("pull request %d is %s, not open", c.PR, before.State)
+	}
+	if before.Head != c.Head {
+		return boundary.Outcome{}, fmt.Errorf("pull request %d is at %s, not the candidate %s: the candidate is stale", c.PR, before.Head, c.Head)
+	}
+	checks, err := f.requiredChecks(c.PR)
+	if err != nil {
+		return boundary.Outcome{}, err
+	}
+	for _, check := range checks {
+		if check.Bucket != "pass" {
+			return boundary.Outcome{}, fmt.Errorf("required check %s is %s", check.Name, check.Bucket)
+		}
+	}
+	after, err := f.pull(c.PR)
+	if err != nil {
+		return boundary.Outcome{}, err
+	}
+	if after != before {
+		return boundary.Outcome{}, fmt.Errorf("pull request %d changed during assessment", c.PR)
+	}
+	return boundary.Outcome{Head: c.Head, Checks: checks}, nil
+}

@@ -1,0 +1,27 @@
+version: "2"
+linters:
+  default: standard
+  enable:
+    - forbidigo
+    - forcetypeassert
+  settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+      disable-default-exclusions: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^json\.(Unmarshal|NewDecoder)$'
+          msg: Decode and validate boundary records in internal/boundary only.
+  exclusions:
+    presets: []
+    rules:
+      - path: '^internal/boundary/'
+        linters: [forbidigo]
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt

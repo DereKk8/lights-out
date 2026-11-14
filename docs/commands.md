@@ -1,0 +1,164 @@
+# Command contract
+
+The conductor is one executable. It reads one JSON request on stdin. On success it writes one JSON result to stdout and exits 0. On any error it writes `{"status":"error","kind":"<kind>","error":"<reason>"}` to stderr and exits 1. Kind `refused` means Lights Out checked and refused. Kind `environment` means a tool call failed, so nothing was proved either way: never read it as a product failure or as a pass. The conductor never reports success after an error.
+
+Run it from a checkout of this repository:
+
+```sh
+printf '%s' '{"command":"inspect","repo":"OWNER/NAME","issue":55}' | go -C <lights-out checkout> run ./cmd/lights-out
+```
+
+The conductor calls `gh`, which must be signed in as a user who can write to the repository, and `gitleaks` 8.30.1. No secret is ever an argument. Requests are limited to 4 MiB. Unknown, duplicate, or non-lowercase fields fail. Name the repository exactly as GitHub does, including case.
+
+## Commands
+
+| Command | Request fields | What it does |
+|---|---|---|
+| `inspect` | `repo`, `issue` | Reads the issue and its whole record chain. Returns `policy` (the zero-trust-review identity line that Lights Out follows), `issue`, `intent_sha256`, `latest` (the newest record comment ID, 0 when none), `url`, `record`, `contract_sha256`, `proofs_sha256`, and `ignored`. |
+| `evidence` | `repo`, `issue`, `body` | Scans `body` for secrets, posts it as a comment on the source issue, and pins it. Returns `status: "posted"` and `artifact`. Post every evidence comment and review part this way. |
+| `artifact` | `repo`, `issue`, `comment` | Pins a comment that is already on the source issue. Returns `artifact`: `{"sha256":"…","url":"…"}`. Use `evidence` or `artifact` for every artifact; do not compute digests yourself. |
+| `checkpoint` | `repo`, `issue`, `previous`, `record` | Appends `record` after the record `previous` (the `latest` you last saw), then reads the chain again to prove the write landed. Returns the new `latest`, `url`, `record`, and digests. |
+| `assess` | `repo`, `issue`, `previous` | Runs the acceptance gate on the stored record `previous`. On success it appends the verified record and returns `status: "verified"`. On refusal it writes nothing. |
+
+Every comment that the conductor posts is scanned first: evidence bodies and records alike. The conductor runs gitleaks with its default rules, pinned so that a `.gitleaks.toml`, `GITLEAKS_CONFIG`, a `.gitleaksignore`, or a `gitleaks:allow` comment cannot switch a rule off. A possible secret is a refusal that names the rule and the line, never the value, and nothing is posted. Remove the value, and rotate it if it is real, because it has already left the vault. A missing scanner is an `environment` failure. The scan finds known secret shapes. It cannot prove that a comment holds no secret, so keep secret values out of every seat in the first place.
+
+One GitHub comment holds at most 65536 characters. `evidence` posts a longer body in up to 8 comments, cut at line ends, and pins them all as one artifact: `url` is the first comment, `parts` lists the rest in order, and `sha256` covers all their bodies joined. Every part is scanned, and so is the whole body. `assess` checks every part again, and the whole artifact must sit in its place in the review order. No part may start with the record marker, so a body that would put the marker at the start of a part is refused. Pass the artifact on unchanged; never split a body yourself, because `artifact` pins only one comment.
+
+`ignored` lists record-like comments that are not part of the history: records in an earlier format, records written by someone who cannot write to the repository, and records that lost a write race. Read the earlier-format records as history, not state.
+
+A network failure during a write is uncertain. Run `inspect` before you retry, and never retry a write blindly.
+
+## The record
+
+Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then one summary line for people, then the typed record folded below it. The conductor writes this form, and it reads only this exact form back. A record comment that someone edited, or that does not match the form, stops recovery. A record that names an unknown predecessor stops recovery. When two writers follow the same record, the forge's comment order decides: the first one continues the history, and the later one is listed in `ignored` as a lost write race. Its writer gets a refusal and must `inspect` again.
+
+A chain may start in the previous format, `<!-- lights-out:v2 -->`. The conductor reads those records under the v2 rules as the start of the chain. The first v3 record names the latest v2 record as its predecessor and passes every v3 rule against it, so a task in flight keeps its findings, its re-check count and its contract. A v2 record posted after the first v3 record is history, not state. Older formats are history only.
+
+```json
+{
+  "intent_sha256": "<from inspect>",
+  "coordinator": "<accountable team identity, never changes>",
+  "session": "<the coordinator session that writes this checkpoint>",
+  "author": "<author seat identity, never changes; the author and its fix sessions use it>",
+  "ci_owner": "<the one owner of CI-runner health>",
+  "phase": "active",
+  "acceptance": [{"id": "A1", "requirement": "<from the source issue>"}],
+  "proofs": [],
+  "findings": [],
+  "failed_rechecks": 0,
+  "next": "<the specific next action>"
+}
+```
+
+- `phase` is `active`, `review`, or `blocked`. Use `blocked` while the task waits, for the owner's decision or for a secret. Only `assess` writes `verified`. The three move freely among themselves. Once `failed_rechecks` is 2, the phase must be `blocked`: the next step is the owner's re-scope decision (ZT-LOOP-6).
+- A `verified` record is the end of the task. The only record that may follow it is a reopening: phase `active` with a new `reopened`, the pinned artifact that says why the verified outcome no longer holds. `reopened` changes in no other checkpoint.
+- `candidate` is absent until a candidate exists. Then it is `{"kind":"change","head":"<40-hex>","pr":<number>}`, or `{"kind":"no-change","head":"<40-hex>","pr":0}` for an existing revision. Phase `review` needs a candidate.
+- `coordinator` and `author` never change once recorded.
+- `intent_sha256` and `acceptance` are frozen. They change only after the owner edits the source issue, in a checkpoint that takes the new `intent_sha256` and sets a new `contract_basis`: the pinned artifact of the owner's decision that amends the contract. On an unchanged issue, `acceptance` never changes.
+- `failed_rechecks` decreases only when the same checkpoint sets a new `recheck_basis`: the pinned artifact of the owner's decision that recounts it, such as a ruling that a review was not a re-check (ZT-LOOP-6). The conductor checks that the artifact is on the source issue and unchanged. It cannot prove that the owner wrote it.
+
+### Waiting and owner decisions
+
+A record in phase `blocked` has `waiting`: the pinned artifact of the question that the task waits on. No other phase has one. The checkpoint that leaves `blocked` sets a new `answer`: the pinned artifact of the reply. `answer` changes in no other checkpoint.
+
+When the source issue's title or body changes after the contract was recorded, `assess` refuses, and `checkpoint` accepts only two records:
+
+1. A record that keeps the recorded `intent_sha256` and is in phase `blocked`, with the question as `waiting`.
+2. A record that takes the new `intent_sha256` from `inspect`, with the owner's decision as a new `contract_basis`. It may also change `acceptance`.
+
+One comment may be pinned as both `answer` and `contract_basis`. The conductor checks that each of these artifacts is on the source issue and unchanged. It cannot prove that the owner wrote it.
+
+### Proofs
+
+Each entry proves one acceptance criterion on the exact candidate:
+
+```json
+{"criterion": "A1", "requirement": "<the criterion as this proof proves it>", "head": "<candidate head>", "kind": "surface", "build": "<identity of the tested artifact>", "evidence": <artifact>, "observation": <artifact>}
+```
+
+`requirement` states what the proof proves. Copy it from the frozen `acceptance` text. A proof of anything else, such as a narrower reading, needs `decision`: the pinned artifact of the owner's decision that allows it. `assess` refuses a proof whose `requirement` differs from the frozen text without one. The conductor cannot prove that the owner wrote the decision.
+
+`evidence` holds the action and its result. `observation` is a separate comment with a second, independent observation of the result. `kind` is `surface`: the team's own test or observation through the product's user-facing path. No outside verification system is approved yet (D13), so no other kind exists.
+
+### Findings
+
+```json
+{"id": "F1", "scope": "in", "owner": "<team>", "disposition": "open", "evidence": <artifact>}
+```
+
+`evidence` records the trigger, the harm, and the smallest disposition. An in-scope finding is `open`, `fixed`, `disproved`, or `filed`. `filed` is for a reproduced finding below the severity floor (ZT-SEV-1): `filed` then links its own issue in the source repository, such as `https://github.com/o/r/issues/7`, and the finding does not block `assess`. An out-of-scope finding is `open` until a separate team accepts it. Then it is `handed-off`, `owner` names that team's coordinator, and `accepted` is the URL of that team's own Lights Out record comment on another issue. A filed issue that nobody took is not a handoff.
+
+A finding never leaves the record. Each checkpoint lists every finding of the record before it. A finding changes `scope` only while it stays `open`. A closed finding changes only by going back to `open`, so `fixed` never becomes `disproved` in one step.
+
+### Suspicions
+
+`suspicions` tracks every suspicion that the saved review names (S1, S2, and so on):
+
+```json
+{"id": "S1", "state": "open"}
+{"id": "S1", "state": "reproduced", "by": "<seat>", "evidence": <artifact>, "finding": "F3"}
+{"id": "S1", "state": "disproved", "by": "<seat>", "evidence": <artifact>}
+```
+
+A suspicion stays `open` until a seat reproduces or disproves it. No other state exists, so a suspicion that nobody could prove either way stays open and blocks `assess`. `by` is the reviewer or verifier named in the receipt. `evidence` is one of that seat's own review parts (`intent` or `suspicions` for the reviewer; `surface`, `attack` or `report` for the verifier), and that part must name the suspicion. A reproduced suspicion names the finding that records it.
+
+### Review
+
+`review` pins one zero-trust-review run as seven artifacts, all comments on the source issue. Record the run as it goes: a record holds the parts posted so far, so a fresh session sees how far the run got. A part is never recorded without the parts that come before it in this table. `surface` and `attack` may come in either order.
+
+| Field | Holds | Must be posted |
+|---|---|---|
+| `sync` | the sync-zero-trust reply | first |
+| `intent` | the reviewer's saved reading of the intent | after `sync` |
+| `suspicions` | the saved review: suspicions, coverage, uncertainty | after `intent` |
+| `surface` | the product-surface run | after `suspicions` |
+| `attack` | the attack phase | after `suspicions` |
+| `report` | the complete report | after `surface`, `attack`, and every proof |
+| `receipt` | the verifier's receipt | last |
+
+Every proof artifact must be posted after `suspicions` and before `receipt`.
+
+Every `checkpoint` checks this order, from the comment IDs in the artifact URLs, and refuses a record that breaks it. So a wrong order is refused when it is recorded, not at the gate.
+
+A new candidate head starts a new run. The checkpoint that changes the head may keep `sync`, which maps the policy, not the candidate. It may not keep any other part of the earlier run, including `intent`: a re-check needs a fresh reviewer, who saves its own reading of the intent (ZT-INDEP-1, ZT-LOOP-2).
+
+The receipt is one JSON object in a json code fence. Copy `contract_sha256` and `proofs_sha256` from the checkpoint that recorded the proofs. `report_sha256` is the `sha256` of the report artifact.
+
+```json
+{
+  "policy": "<the identity line Lights Out follows>",
+  "head": "<the tested head>",
+  "verdict": "PASS",
+  "contract_sha256": "<from checkpoint>",
+  "proofs_sha256": "<from checkpoint>",
+  "report_sha256": "<from the report artifact>",
+  "author": "<the record's author>",
+  "author_family": "<model family of the author seat>",
+  "reviewer": "<reviewer seat identity>",
+  "reviewer_family": "<model family of the reviewer>",
+  "verifier": "<verifier seat identity>"
+}
+```
+
+## The acceptance gate
+
+`assess` returns `verified` only when all of these hold. Each failure names its reason.
+
+1. The caller saw the latest record, the source issue still matches the recorded `intent_sha256`, and the record is in phase `review`.
+2. Fewer than two re-checks failed (ZT-LOOP-6). A record at that bound cannot be in phase `review`.
+3. Every acceptance criterion has a proof, and every proof is for the candidate head. Each proof states the requirement it proves, and one that differs from the frozen text links an owner decision.
+4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.
+5. The zero-trust-review identity on the policy's master branch is the one Lights Out follows. The conductor loads the file as sync-zero-trust step 1 does and checks its bytes against the blob ID.
+6. Every artifact is still its pinned bytes, is on the source issue, and was written by a repository writer.
+7. The review has all seven parts. Every record already holds them, and the proofs, in the order above.
+8. The sync reply names the followed identity, maps every requirement ID of that version in file order, and has no blocking gap and no incomplete part.
+9. The receipt follows the same identity, says PASS for the candidate head, and endorses this contract, these proofs, and this report. The reviewer and verifier are not the author, and the reviewer's model family differs from the author's.
+10. The record tracks every suspicion that the saved review names. None is open, each reproduced one names a listed finding, and each decided one cites a review part of the seat it is attributed to, which names it.
+11. For a change: the pull request is open, its head is the candidate, every required check passes, and the head does not move while checks are read. For no-change: the default branch contains the candidate.
+12. Nothing moved during assessment.
+
+The verified record repeats the assessed record with phase `verified` and an `outcome`: the head and the required checks that passed. `assess` never merges.
+
+## What the conductor does not defend against
+
+GitHub decides who may write. Anyone who can write to the repository can also write records and evidence under any role name. Lights Out ignores records from people who cannot write. It refuses evidence from them. It does not prove which model or session wrote a comment. The runtime that starts the sessions owns their isolation. The digests catch edits and stale reuse. They do not catch misuse of a writer's credentials.
