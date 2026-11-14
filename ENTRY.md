@@ -59,12 +59,12 @@ Checkpoint before a session ends, after each finding, after the head changes, an
 4. Post each review part as its own comment on the source issue with `evidence`, in the order that docs/commands.md lists. A seat that cannot run the conductor gives you its part, and you post it. The conductor checks the order.
 5. Record the proofs, and checkpoint them. Each proof states the requirement it proves, copied from the frozen acceptance text. Never narrow a criterion yourself: a proof of a different reading needs the owner's decision, pinned in the proof. The verifier posts the report, then the receipt with the digests from that checkpoint. Then checkpoint the review.
 6. Track every suspicion of the saved review in the record. A suspicion closes only when a seat reproduces or disproves it, citing that seat's own review part. Report each judgment as the seat that made it, in its own words.
-7. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record. If the owner recounts them, pin the owner's decision as `recheck_basis` in the checkpoint that lowers the count. File each finding below the severity floor (ZT-SEV-1) as its own issue, and record it as `filed` with that issue.
+7. A reproduced defect follows the policy's bounded loop. Count each failed re-check in the record. At two, checkpoint phase `blocked` and ask the owner for the re-scope decision. If the owner recounts them, pin the owner's decision as `recheck_basis` in the checkpoint that lowers the count. File each finding below the severity floor (ZT-SEV-1) as its own issue, and record it as `filed` with that issue.
 
 ## 5. Accept and report
 
 1. Run `assess`. It refuses missing, stale, or inapplicable evidence, and it names why. Never work around a refusal. Fix the cause, or report it.
-2. On success, the issue holds the verified record. A verified candidate is not a merged change.
+2. On success, the issue holds the verified record. A verified candidate is not a merged change. A verified record ends the task. If the verified outcome proves wrong, post the reason with `evidence` and checkpoint phase `active` with that artifact as `reopened`.
 3. Merge only through the forge's revision-bound merge, and only when zero-trust-review reports PASS and every required check is green on that same revision (D11). On GitHub that is `gh pr merge <number> --match-head-commit <verified head>`. A change that touches security, credentials, data loss, irreversible or production-facing actions, or Lights Out's own gates and authority boundaries also needs the owner's explicit word.
 4. Post a short outcome comment for the owner: what was asked, what resolves it, the evidence, the remaining risks, and any product choice. Keep routine reports short. Keep internal orchestration out of product-facing text. Add no agent co-author to commits. Keep secrets, credentials, private hosts, and private context out of every public comment.
 

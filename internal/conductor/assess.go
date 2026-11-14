@@ -60,9 +60,6 @@ func ready(r boundary.Record) error {
 	if r.Phase != boundary.PhaseReview {
 		return fmt.Errorf("the latest record is in phase %s; assess needs phase review", r.Phase)
 	}
-	if r.FailedRechecks >= 2 {
-		return errors.New("two re-checks failed: the next step is the owner's re-scope decision (ZT-LOOP-6), not another assessment")
-	}
 	if r.Review == nil {
 		return errors.New("the record has no independent review")
 	}
@@ -274,6 +271,11 @@ func resolved(f *forge, r boundary.Record) error {
 	if r.RecheckBasis != nil {
 		if _, err := f.evidence(*r.RecheckBasis); err != nil {
 			return fmt.Errorf("recheck_basis: %w", err)
+		}
+	}
+	if r.Reopened != nil {
+		if _, err := f.evidence(*r.Reopened); err != nil {
+			return fmt.Errorf("reopened: %w", err)
 		}
 	}
 	for _, p := range r.Proofs {

@@ -128,6 +128,7 @@ type Record struct {
 	Findings       []Finding   `json:"findings"`
 	FailedRechecks int         `json:"failed_rechecks"`
 	RecheckBasis   *Artifact   `json:"recheck_basis,omitempty"`
+	Reopened       *Artifact   `json:"reopened,omitempty"`
 	Suspicions     []Suspicion `json:"suspicions,omitempty"`
 	Next           string      `json:"next"`
 	Outcome        *Outcome    `json:"outcome,omitempty"`
@@ -151,6 +152,11 @@ func (r Record) Validate() error {
 	if r.RecheckBasis != nil {
 		if err := r.RecheckBasis.Validate(); err != nil {
 			return fmt.Errorf("recheck_basis: %w", err)
+		}
+	}
+	if r.Reopened != nil {
+		if err := r.Reopened.Validate(); err != nil {
+			return fmt.Errorf("reopened: %w", err)
 		}
 	}
 	if r.Acceptance == nil || r.Proofs == nil || r.Findings == nil {
@@ -262,6 +268,9 @@ func (c *Candidate) validate() error {
 }
 
 func (r Record) validatePhase() error {
+	if r.FailedRechecks >= 2 && r.Phase != PhaseBlocked {
+		return errors.New("two re-checks failed: the next step is the owner's re-scope decision (ZT-LOOP-6), so the phase must be blocked")
+	}
 	switch r.Phase {
 	case PhaseActive, PhaseBlocked:
 	case PhaseReview:
@@ -354,6 +363,9 @@ func (r Record) Artifacts() []Artifact {
 	if r.RecheckBasis != nil {
 		all = append(all, *r.RecheckBasis)
 	}
+	if r.Reopened != nil {
+		all = append(all, *r.Reopened)
+	}
 	for _, p := range r.Proofs {
 		if p.Decision != nil {
 			all = append(all, *p.Decision)
@@ -367,8 +379,26 @@ func (r Record) Artifacts() []Artifact {
 	return all
 }
 
+// moves lists the phases that may follow each phase. Only assess writes
+// verified, and a verified record is followed only by a reopening.
+var moves = map[string][]string{
+	PhaseActive:   {PhaseActive, PhaseReview, PhaseBlocked},
+	PhaseReview:   {PhaseActive, PhaseReview, PhaseBlocked, PhaseVerified},
+	PhaseBlocked:  {PhaseActive, PhaseReview, PhaseBlocked},
+	PhaseVerified: {PhaseActive},
+}
+
 // Transition checks that next may follow old in one issue's chain.
 func Transition(old, next Record) error {
+	if !slices.Contains(moves[old.Phase], next.Phase) {
+		return fmt.Errorf("a %s record cannot be followed by a %s record", old.Phase, next.Phase)
+	}
+	switch same := reflect.DeepEqual(old.Reopened, next.Reopened); {
+	case old.Phase == PhaseVerified && (same || next.Reopened == nil):
+		return errors.New("a verified task reopens only with a new reopened: the pinned reason that the verified outcome no longer holds")
+	case old.Phase != PhaseVerified && !same:
+		return errors.New("reopened changes only in the checkpoint that reopens a verified task")
+	}
 	if old.IntentSHA256 != next.IntentSHA256 || !reflect.DeepEqual(old.Acceptance, next.Acceptance) {
 		return errors.New("the intent or acceptance contract changed: that needs the owner's product decision, not a checkpoint")
 	}

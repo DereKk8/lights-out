@@ -519,7 +519,6 @@ func TestAssessRefusesUnsupportedAcceptance(t *testing.T) {
 			s.record.Phase = boundary.PhaseBlocked
 			s.latest = s.g.store(s.latest, s.record).ID
 		}},
-		{name: "re-check bound", want: "re-scope", before: func(s *reviewed) { s.record.FailedRechecks = 2 }},
 		{name: "missing proof", want: "acceptance A1 has no proof", before: func(s *reviewed) { s.record.Proofs = []boundary.Proof{} }},
 		{name: "stale proof", want: "stale evidence", before: func(s *reviewed) { s.record.Proofs[0].Head = other }},
 		{name: "stale verdict", want: "stale verdict", before: func(s *reviewed) { s.receipt.Head = other }},
@@ -736,6 +735,55 @@ func TestCheckpointKeepsEveryFinding(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPhaseMovesAreNamed(t *testing.T) {
+	t.Run("two failed re-checks stop every phase but blocked", func(t *testing.T) {
+		s := setup(t, nil)
+		r := s.record
+		r.FailedRechecks = 2
+		for _, phase := range []string{boundary.PhaseReview, boundary.PhaseActive} {
+			r.Phase = phase
+			if out, err := checkpoint(t, s.g, s.latest, r); err == nil || !strings.Contains(err.Error(), "re-scope decision (ZT-LOOP-6)") || out != "" || s.g.posts != 0 {
+				t.Fatalf("phase %s: output=%q error=%v posts=%d, want a re-scope refusal and no write", phase, out, err, s.g.posts)
+			}
+		}
+		r.Phase = boundary.PhaseBlocked
+		out, err := checkpoint(t, s.g, s.latest, r)
+		if err != nil || !strings.Contains(out, `"phase":"blocked"`) {
+			t.Fatalf("a blocked record at the bound was refused: %v %s", err, out)
+		}
+	})
+	t.Run("a verified task reopens only with a pinned reason", func(t *testing.T) {
+		s := setup(t, nil)
+		if _, err := s.assess(t); err != nil {
+			t.Fatal(err)
+		}
+		verified := s.g.nextID
+		r := s.record
+		r.Phase, r.Next = boundary.PhaseActive, "repair the unsound acceptance"
+		if _, err := checkpoint(t, s.g, verified, r); err == nil || !strings.Contains(err.Error(), "reopens only with a new reopened") {
+			t.Fatalf("a verified task reopened with no reason: %v", err)
+		}
+		reason := s.g.artifact("An independent review found the acceptance unsound: A1 was narrowed.")
+		r.Reopened = &reason
+		for _, phase := range []string{boundary.PhaseReview, boundary.PhaseBlocked} {
+			r.Phase = phase
+			if _, err := checkpoint(t, s.g, verified, r); err == nil || !strings.Contains(err.Error(), "cannot be followed by") {
+				t.Fatalf("a verified record was followed by %s: %v", phase, err)
+			}
+		}
+		r.Phase = boundary.PhaseActive
+		out, err := checkpoint(t, s.g, verified, r)
+		if err != nil || !strings.Contains(out, `"reopened":{"sha256":"`+reason.SHA256) {
+			t.Fatalf("the reopening did not land: %v %s", err, out)
+		}
+		other := s.g.artifact("Another reason.")
+		r.Reopened = &other
+		if _, err := checkpoint(t, s.g, s.g.nextID-1, r); err == nil || !strings.Contains(err.Error(), "reopened changes only") {
+			t.Fatalf("reopened changed outside a reopening: %v", err)
+		}
+	})
 }
 
 func TestOwnerDecisionRecountsFailedRechecks(t *testing.T) {

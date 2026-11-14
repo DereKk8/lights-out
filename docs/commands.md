@@ -48,7 +48,8 @@ Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then 
 }
 ```
 
-- `phase` is `active`, `review`, or `blocked`. Use `blocked` while a decision waits for the owner. Only `assess` writes `verified`.
+- `phase` is `active`, `review`, or `blocked`. Use `blocked` while a decision waits for the owner. Only `assess` writes `verified`. The three move freely among themselves. Once `failed_rechecks` is 2, the phase must be `blocked`: the next step is the owner's re-scope decision (ZT-LOOP-6).
+- A `verified` record is the end of the task. The only record that may follow it is a reopening: phase `active` with a new `reopened`, the pinned artifact that says why the verified outcome no longer holds. `reopened` changes in no other checkpoint.
 - `candidate` is absent until a candidate exists. Then it is `{"kind":"change","head":"<40-hex>","pr":<number>}`, or `{"kind":"no-change","head":"<40-hex>","pr":0}` for an existing revision. Phase `review` needs a candidate.
 - These never change once recorded: `intent_sha256`, `acceptance`, `coordinator`, `author`. A changed issue or contract needs the owner's decision.
 - `failed_rechecks` decreases only when the same checkpoint sets a new `recheck_basis`: the pinned artifact of the owner's decision that recounts it, such as a ruling that a review was not a re-check (ZT-LOOP-6). The conductor checks that the artifact is on the source issue and unchanged. It cannot prove that the owner wrote it.
@@ -126,7 +127,7 @@ The receipt is one JSON object in a json code fence. Copy `contract_sha256` and 
 `assess` returns `verified` only when all of these hold. Each failure names its reason.
 
 1. The caller saw the latest record, the source issue is unchanged, and the record is in phase `review`.
-2. Fewer than two re-checks failed (ZT-LOOP-6).
+2. Fewer than two re-checks failed (ZT-LOOP-6). A record at that bound cannot be in phase `review`.
 3. Every acceptance criterion has a proof, and every proof is for the candidate head. Each proof states the requirement it proves, and one that differs from the frozen text links an owner decision.
 4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.
 5. The zero-trust-review identity on the policy's master branch is the one Lights Out follows. The conductor loads the file as sync-zero-trust step 1 does and checks its bytes against the blob ID.
