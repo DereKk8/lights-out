@@ -50,7 +50,7 @@ func Execute(ctx context.Context, stdin []byte, name string, args ...string) ([]
 // Followed is the zero-trust-review identity that this build follows. Change
 // it only together with a sync-zero-trust run that maps every requirement ID
 // for the new version.
-const Followed = "Identity: zero-trust-review 6.1.0 959e17eec321b9b780e95b75198bd0c0aad6227b 01ac56da7fb08ae30bc430c5e4a77a30c880a913"
+const Followed = "Identity: zero-trust-review 6.2.0 d6d9b9d603d5d092157187b9e1b61ef062b9decd 553488098e1e1b4eafa4ee0410024bf6d1ab3466"
 
 // Timeout bounds one command, including every forge call it makes.
 func Timeout() (context.Context, context.CancelFunc) {
