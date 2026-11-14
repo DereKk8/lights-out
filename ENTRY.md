@@ -8,7 +8,7 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 
 ## Who decides what
 
-- **The owner** decides product intent, accepted behavior, priorities, and product trade-offs, as [README.md](README.md#who-decides) says. Ask the owner only for those. Give the options, the consequence of each, and your recommendation. Set the record's phase to `blocked` while you wait.
+- **The owner** decides product intent, accepted behavior, priorities, and product trade-offs, as [README.md](README.md#who-decides) says. Ask the owner only for those. Give the options, the consequence of each, and your recommendation. Post the question with `evidence`, and checkpoint phase `blocked` with that artifact as `waiting`. When the owner replies, pin the reply with `artifact`, and leave `blocked` with it as `answer`.
 - **You** decide engineering: architecture, implementation, remediation, proof, staffing. Engineering difficulty, a failed attempt, or a retry count is not a reason to ask the owner. Change strategy, get expertise, or delegate.
 - **zero-trust-review** decides how a change is reviewed. It lives in [DereKk8/project-skills](https://github.com/DereKk8/project-skills/blob/master/shared/zero-trust-review/SKILL.md), and you follow it as written. Do not copy, reinterpret, or weaken any rule to fit your tools. A rule your setup cannot meet is a gap that you report through its [sync-zero-trust](https://github.com/DereKk8/project-skills/blob/master/shared/sync-zero-trust/SKILL.md) procedure. You hold its engineering-lead seat for engineering stops (D10). The owner decides whether to accept a serious unreproduced risk (ZT-VERDICT-2) and what to do after two failed re-checks (ZT-LOOP-6).
 - **The project's `verify-*` skill** decides how the product is run and checked: its surfaces, safe instances, bootstrap, and attack scenarios. If the project has none, find those parts in the project, record where each came from, and report the missing skill.
@@ -24,7 +24,7 @@ The conductor is this repository's executable. Its contract is [docs/commands.md
 ## 2. Own and plan
 
 1. Name the coordinator identity (stable for the whole task), the author seat, and the CI-health owner.
-2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. A changed requirement needs the owner's decision.
+2. Record the acceptance requirements, taken from the source issue, in your first checkpoint and before any implementation. They are frozen after that. A changed requirement, or a changed source issue, needs the owner's decision: ask as above, then amend the contract with the reply as `contract_basis`.
 3. Fill each seat as zero-trust-review's model rules say (ZT-MODEL-4, ZT-MODEL-5), and record each seat's model in the evidence. The author seat writes product changes. You do not write product changes yourself unless you hold the author seat.
 4. Get the secrets ready before any seat starts. Follow the next section.
 5. Delegate bounded work when it helps. Use cheaper models only where they are adequate and no policy rule names a model. Parallelize only when it saves time. Start no standing workers or supervisors.
@@ -35,7 +35,7 @@ The owner's broker, Agent Vault, holds every secret. Agents use a secret through
 
 1. Read the secrets manifest, `secrets.json`, beside the product's `verify-*` skill. `{"secrets": []}` means the product needs none. A missing manifest is a gap: report it to the skill's owner.
 2. Run `agent-access doctor <profile> --needs <manifest>`. A missing secret is an environment failure, never a pass and never a product failure.
-3. For each missing secret, run `agent-access request <profile> --needs <manifest> --task <issue URL>`. It asks the owner once. Checkpoint phase `blocked`, and name the missing key in `next`. Never provision, fetch, or print a secret yourself.
+3. For each missing secret, run `agent-access request <profile> --needs <manifest> --task <issue URL>`. It asks the owner once. Post which key is missing with `evidence`, and checkpoint phase `blocked` with that artifact as `waiting`. When `doctor` passes, post its result and leave `blocked` with it as `answer`. Never provision, fetch, or print a secret yourself.
 4. Start every seat under `agent-access run <profile> -- <runtime command>`, so the seat holds placeholders and the broker adds the real values. If a runtime fails under the broker, check the broker's own documentation. Use a fallback only where it documents one for that exact failure, and record the fallback in the evidence. Any other failure is an environment gap: report it.
 
 ## 3. Work

@@ -60,4 +60,8 @@ Settled on October 27, 2026, after an independent review found the pilot's first
 
 - **Judgments the gate checks:** a proof of anything other than the frozen criterion needs a linked owner decision; a suspicion stays open until a seat reproduces or disproves it with evidence; and every judgment cites the review part of the seat that made it ([docs/commands.md](docs/commands.md)).
 
+Settled on November 14, 2026, after an audit of the record's unchecked moves:
+
+- **Moves the record checks:** a finding never leaves the record; a verified task ends, and reopens only with a pinned reason; two failed re-checks stop the task until the owner re-scopes it; a blocked task pins its question and its answer; and the contract changes only with a pinned owner decision ([docs/commands.md](docs/commands.md)).
+
 Open work with the owner's direction recorded: [#6](https://github.com/DereKk8/lights-out/issues/6) (an outside verification system), [#10](https://github.com/DereKk8/lights-out/issues/10) (cloud-first seats and their secrets), [#11](https://github.com/DereKk8/lights-out/issues/11) (resume a stopped team), and [#12](https://github.com/DereKk8/lights-out/issues/12) (Grok work through the Grok Bot team).

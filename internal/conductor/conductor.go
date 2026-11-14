@@ -190,9 +190,8 @@ func evidence(f *forge, body string) (pinned, error) {
 	return pinned{"posted", a}, nil
 }
 
-// current loads the chain and checks that the caller saw its latest record
-// and that the source intent still matches.
-func current(f *forge, previous int64) (history, error) {
+// latest loads the chain and checks that the caller saw its latest record.
+func latest(f *forge, previous int64) (history, error) {
 	h, err := f.load()
 	if err != nil {
 		return h, err
@@ -200,19 +199,39 @@ func current(f *forge, previous int64) (history, error) {
 	if previous != h.latest {
 		return h, fmt.Errorf("stale predecessor %d: the latest record is %d, so inspect again", previous, h.latest)
 	}
+	return h, nil
+}
+
+const drifted = "the source issue changed after the contract was recorded: that needs the owner's product decision"
+
+// current is latest, and it also checks that the source intent still matches
+// the record.
+func current(f *forge, previous int64) (history, error) {
+	h, err := latest(f, previous)
+	if err != nil {
+		return h, err
+	}
 	if h.record != nil && h.record.IntentSHA256 != intent(h.issue) {
-		return h, errors.New("the source issue changed after the contract was recorded: that needs the owner's product decision")
+		return h, errors.New(drifted)
 	}
 	return h, nil
 }
 
+// checkpoint appends next. When the source issue changed after the contract
+// was recorded, it accepts only two records: one that keeps the recorded
+// intent and waits in phase blocked, and one that takes the new intent, which
+// Transition accepts only with the owner's decision as a new contract_basis.
 func checkpoint(f *forge, previous int64, next boundary.Record) (Response, error) {
-	h, err := current(f, previous)
+	h, err := latest(f, previous)
 	if err != nil {
 		return Response{}, err
 	}
-	if next.IntentSHA256 != intent(h.issue) {
+	switch live := intent(h.issue); {
+	case next.IntentSHA256 == live:
+	case h.record == nil || h.record.IntentSHA256 == live || next.IntentSHA256 != h.record.IntentSHA256:
 		return Response{}, errors.New("intent_sha256 does not match the source issue; copy it from inspect")
+	case next.Phase != boundary.PhaseBlocked:
+		return Response{}, errors.New(drifted + ": checkpoint phase blocked with the question as waiting, then amend the contract with the decision as contract_basis")
 	}
 	for _, a := range next.Artifacts() {
 		for _, u := range a.URLs() {

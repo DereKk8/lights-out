@@ -268,14 +268,11 @@ func resolved(f *forge, r boundary.Record) error {
 			}
 		}
 	}
-	if r.RecheckBasis != nil {
-		if _, err := f.evidence(*r.RecheckBasis); err != nil {
-			return fmt.Errorf("recheck_basis: %w", err)
-		}
-	}
-	if r.Reopened != nil {
-		if _, err := f.evidence(*r.Reopened); err != nil {
-			return fmt.Errorf("reopened: %w", err)
+	for _, p := range r.Pins() {
+		if p.Artifact != nil {
+			if _, err := f.evidence(*p.Artifact); err != nil {
+				return fmt.Errorf("%s: %w", p.Name, err)
+			}
 		}
 	}
 	for _, p := range r.Proofs {

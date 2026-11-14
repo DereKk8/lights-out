@@ -129,9 +129,25 @@ type Record struct {
 	FailedRechecks int         `json:"failed_rechecks"`
 	RecheckBasis   *Artifact   `json:"recheck_basis,omitempty"`
 	Reopened       *Artifact   `json:"reopened,omitempty"`
+	Waiting        *Artifact   `json:"waiting,omitempty"`
+	Answer         *Artifact   `json:"answer,omitempty"`
+	ContractBasis  *Artifact   `json:"contract_basis,omitempty"`
 	Suspicions     []Suspicion `json:"suspicions,omitempty"`
 	Next           string      `json:"next"`
 	Outcome        *Outcome    `json:"outcome,omitempty"`
+}
+
+// Pin is one named artifact that a record pins on its own, outside a proof,
+// a finding or the review.
+type Pin struct {
+	Name     string
+	Artifact *Artifact
+}
+
+// Pins lists the record's own pins: the question a blocked task waits on,
+// and the decisions and reasons that allowed a guarded change.
+func (r Record) Pins() []Pin {
+	return []Pin{{"recheck_basis", r.RecheckBasis}, {"reopened", r.Reopened}, {"waiting", r.Waiting}, {"answer", r.Answer}, {"contract_basis", r.ContractBasis}}
 }
 
 type Stored struct {
@@ -149,14 +165,11 @@ func (r Record) Validate() error {
 	if r.FailedRechecks < 0 {
 		return errors.New("failed_rechecks cannot be negative")
 	}
-	if r.RecheckBasis != nil {
-		if err := r.RecheckBasis.Validate(); err != nil {
-			return fmt.Errorf("recheck_basis: %w", err)
-		}
-	}
-	if r.Reopened != nil {
-		if err := r.Reopened.Validate(); err != nil {
-			return fmt.Errorf("reopened: %w", err)
+	for _, p := range r.Pins() {
+		if p.Artifact != nil {
+			if err := p.Artifact.Validate(); err != nil {
+				return fmt.Errorf("%s: %w", p.Name, err)
+			}
 		}
 	}
 	if r.Acceptance == nil || r.Proofs == nil || r.Findings == nil {
@@ -271,6 +284,9 @@ func (r Record) validatePhase() error {
 	if r.FailedRechecks >= 2 && r.Phase != PhaseBlocked {
 		return errors.New("two re-checks failed: the next step is the owner's re-scope decision (ZT-LOOP-6), so the phase must be blocked")
 	}
+	if (r.Phase == PhaseBlocked) != (r.Waiting != nil) {
+		return errors.New("phase blocked needs waiting, the pinned question that the task waits on, and no other phase has one")
+	}
 	switch r.Phase {
 	case PhaseActive, PhaseBlocked:
 	case PhaseReview:
@@ -360,11 +376,10 @@ func (r Record) Artifacts() []Artifact {
 	for _, f := range r.Findings {
 		all = append(all, f.Evidence)
 	}
-	if r.RecheckBasis != nil {
-		all = append(all, *r.RecheckBasis)
-	}
-	if r.Reopened != nil {
-		all = append(all, *r.Reopened)
+	for _, p := range r.Pins() {
+		if p.Artifact != nil {
+			all = append(all, *p.Artifact)
+		}
 	}
 	for _, p := range r.Proofs {
 		if p.Decision != nil {
@@ -393,14 +408,29 @@ func Transition(old, next Record) error {
 	if !slices.Contains(moves[old.Phase], next.Phase) {
 		return fmt.Errorf("a %s record cannot be followed by a %s record", old.Phase, next.Phase)
 	}
-	switch same := reflect.DeepEqual(old.Reopened, next.Reopened); {
-	case old.Phase == PhaseVerified && (same || next.Reopened == nil):
-		return errors.New("a verified task reopens only with a new reopened: the pinned reason that the verified outcome no longer holds")
-	case old.Phase != PhaseVerified && !same:
-		return errors.New("reopened changes only in the checkpoint that reopens a verified task")
+	guarded := []struct {
+		due                bool
+		old, next          *Artifact
+		refusal, misplaced string
+	}{
+		{old.Phase == PhaseVerified, old.Reopened, next.Reopened,
+			"a verified task reopens only with a new reopened: the pinned reason that the verified outcome no longer holds",
+			"reopened changes only in the checkpoint that reopens a verified task"},
+		{old.IntentSHA256 != next.IntentSHA256 || !reflect.DeepEqual(old.Acceptance, next.Acceptance), old.ContractBasis, next.ContractBasis,
+			"the intent or acceptance contract changed: that needs the owner's product decision, pinned as a new contract_basis",
+			"contract_basis changes only in the checkpoint that amends the intent or the acceptance contract"},
+		{old.Phase == PhaseBlocked && next.Phase != PhaseBlocked, old.Answer, next.Answer,
+			"a task leaves phase blocked only with a new answer: the pinned reply to the question it waited on",
+			"answer changes only in the checkpoint that leaves phase blocked"},
 	}
-	if old.IntentSHA256 != next.IntentSHA256 || !reflect.DeepEqual(old.Acceptance, next.Acceptance) {
-		return errors.New("the intent or acceptance contract changed: that needs the owner's product decision, not a checkpoint")
+	for _, g := range guarded {
+		same := reflect.DeepEqual(g.old, g.next)
+		if g.due && (same || g.next == nil) {
+			return errors.New(g.refusal)
+		}
+		if !g.due && !same {
+			return errors.New(g.misplaced)
+		}
 	}
 	if old.Coordinator != next.Coordinator || old.Author != next.Author {
 		return errors.New("the accountable coordinator and author identities cannot change")

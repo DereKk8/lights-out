@@ -48,11 +48,23 @@ Each record is one issue comment. It starts with `<!-- lights-out:v3 -->`, then 
 }
 ```
 
-- `phase` is `active`, `review`, or `blocked`. Use `blocked` while a decision waits for the owner. Only `assess` writes `verified`. The three move freely among themselves. Once `failed_rechecks` is 2, the phase must be `blocked`: the next step is the owner's re-scope decision (ZT-LOOP-6).
+- `phase` is `active`, `review`, or `blocked`. Use `blocked` while the task waits, for the owner's decision or for a secret. Only `assess` writes `verified`. The three move freely among themselves. Once `failed_rechecks` is 2, the phase must be `blocked`: the next step is the owner's re-scope decision (ZT-LOOP-6).
 - A `verified` record is the end of the task. The only record that may follow it is a reopening: phase `active` with a new `reopened`, the pinned artifact that says why the verified outcome no longer holds. `reopened` changes in no other checkpoint.
 - `candidate` is absent until a candidate exists. Then it is `{"kind":"change","head":"<40-hex>","pr":<number>}`, or `{"kind":"no-change","head":"<40-hex>","pr":0}` for an existing revision. Phase `review` needs a candidate.
-- These never change once recorded: `intent_sha256`, `acceptance`, `coordinator`, `author`. A changed issue or contract needs the owner's decision.
+- `coordinator` and `author` never change once recorded.
+- `intent_sha256` and `acceptance` are frozen. They change only in a checkpoint that sets a new `contract_basis`: the pinned artifact of the owner's decision that amends the contract.
 - `failed_rechecks` decreases only when the same checkpoint sets a new `recheck_basis`: the pinned artifact of the owner's decision that recounts it, such as a ruling that a review was not a re-check (ZT-LOOP-6). The conductor checks that the artifact is on the source issue and unchanged. It cannot prove that the owner wrote it.
+
+### Waiting and owner decisions
+
+A record in phase `blocked` has `waiting`: the pinned artifact of the question that the task waits on. No other phase has one. The checkpoint that leaves `blocked` sets a new `answer`: the pinned artifact of the reply. `answer` changes in no other checkpoint.
+
+When the source issue's title or body changes after the contract was recorded, `assess` refuses, and `checkpoint` accepts only two records:
+
+1. A record that keeps the recorded `intent_sha256` and is in phase `blocked`, with the question as `waiting`.
+2. A record that takes the new `intent_sha256` from `inspect`, with the owner's decision as a new `contract_basis`. It may also change `acceptance`.
+
+One comment may be pinned as both `answer` and `contract_basis`. The conductor checks that each of these artifacts is on the source issue and unchanged. It cannot prove that the owner wrote it.
 
 ### Proofs
 
@@ -126,7 +138,7 @@ The receipt is one JSON object in a json code fence. Copy `contract_sha256` and 
 
 `assess` returns `verified` only when all of these hold. Each failure names its reason.
 
-1. The caller saw the latest record, the source issue is unchanged, and the record is in phase `review`.
+1. The caller saw the latest record, the source issue still matches the recorded `intent_sha256`, and the record is in phase `review`.
 2. Fewer than two re-checks failed (ZT-LOOP-6). A record at that bound cannot be in phase `review`.
 3. Every acceptance criterion has a proof, and every proof is for the candidate head. Each proof states the requirement it proves, and one that differs from the frozen text links an owner decision.
 4. No finding is `open`. Each handoff links a record of the named owner, on another issue, by a different coordinator. Each `filed` finding links an existing issue, not a pull request, in the source repository, other than the source issue.

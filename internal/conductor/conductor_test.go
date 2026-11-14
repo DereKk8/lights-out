@@ -516,7 +516,8 @@ func TestAssessRefusesUnsupportedAcceptance(t *testing.T) {
 			s.latest = s.g.store(s.latest, s.record).ID
 		}},
 		{name: "phase blocked on the owner", want: "needs phase review", after: func(s *reviewed) {
-			s.record.Phase = boundary.PhaseBlocked
+			question := s.g.artifact("Question for the owner: accept the risk?")
+			s.record.Phase, s.record.Waiting = boundary.PhaseBlocked, &question
 			s.latest = s.g.store(s.latest, s.record).ID
 		}},
 		{name: "missing proof", want: "acceptance A1 has no proof", before: func(s *reviewed) { s.record.Proofs = []boundary.Proof{} }},
@@ -748,7 +749,8 @@ func TestPhaseMovesAreNamed(t *testing.T) {
 				t.Fatalf("phase %s: output=%q error=%v posts=%d, want a re-scope refusal and no write", phase, out, err, s.g.posts)
 			}
 		}
-		r.Phase = boundary.PhaseBlocked
+		question := s.g.artifact("Two re-checks failed. Options for the re-scope: ...")
+		r.Phase, r.Waiting = boundary.PhaseBlocked, &question
 		out, err := checkpoint(t, s.g, s.latest, r)
 		if err != nil || !strings.Contains(out, `"phase":"blocked"`) {
 			t.Fatalf("a blocked record at the bound was refused: %v %s", err, out)
@@ -768,12 +770,14 @@ func TestPhaseMovesAreNamed(t *testing.T) {
 		reason := s.g.artifact("An independent review found the acceptance unsound: A1 was narrowed.")
 		r.Reopened = &reason
 		for _, phase := range []string{boundary.PhaseReview, boundary.PhaseBlocked} {
-			r.Phase = phase
-			if _, err := checkpoint(t, s.g, verified, r); err == nil || !strings.Contains(err.Error(), "cannot be followed by") {
+			next := r
+			if next.Phase = phase; phase == boundary.PhaseBlocked {
+				next.Waiting = &reason
+			}
+			if _, err := checkpoint(t, s.g, verified, next); err == nil || !strings.Contains(err.Error(), "cannot be followed by") {
 				t.Fatalf("a verified record was followed by %s: %v", phase, err)
 			}
 		}
-		r.Phase = boundary.PhaseActive
 		out, err := checkpoint(t, s.g, verified, r)
 		if err != nil || !strings.Contains(out, `"reopened":{"sha256":"`+reason.SHA256) {
 			t.Fatalf("the reopening did not land: %v %s", err, out)
@@ -784,6 +788,104 @@ func TestPhaseMovesAreNamed(t *testing.T) {
 			t.Fatalf("reopened changed outside a reopening: %v", err)
 		}
 	})
+}
+
+func TestBlockedTaskPinsItsQuestionAndItsAnswer(t *testing.T) {
+	g := newGitHub(t)
+	r := base(g)
+	latest := g.store(0, r).ID
+	refused := func(want string, r boundary.Record) {
+		t.Helper()
+		posts := g.posts
+		if out, err := checkpoint(t, g, latest, r); err == nil || !strings.Contains(err.Error(), want) || out != "" || g.posts != posts {
+			t.Fatalf("output=%q error=%v, want refusal %q and no write", out, err, want)
+		}
+	}
+	accepted := func(r boundary.Record) {
+		t.Helper()
+		if _, err := checkpoint(t, g, latest, r); err != nil {
+			t.Fatalf("refused: %v", err)
+		}
+		latest = g.nextID
+	}
+	question := g.artifact("Question for the owner: option 1 or option 2? Recommendation: 1.")
+	r.Phase = boundary.PhaseBlocked
+	refused("phase blocked needs waiting", r)
+	r.Phase, r.Waiting = boundary.PhaseActive, &question
+	refused("no other phase has one", r)
+	r.Phase = boundary.PhaseBlocked
+	accepted(r)
+
+	r.Phase, r.Waiting = boundary.PhaseActive, nil
+	refused("leaves phase blocked only with a new answer", r)
+	answer := g.artifact("Owner: option 1.")
+	r.Answer = &answer
+	accepted(r)
+
+	later := g.artifact("Another comment.")
+	r.Answer = &later
+	refused("answer changes only in the checkpoint that leaves phase blocked", r)
+
+	// A second wait cannot leave on the first answer.
+	r.Answer, r.Phase, r.Waiting = &answer, boundary.PhaseBlocked, &later
+	accepted(r)
+	r.Phase, r.Waiting = boundary.PhaseActive, nil
+	refused("leaves phase blocked only with a new answer", r)
+}
+
+func TestEditedIssueBecomesAnOwnerDecision(t *testing.T) {
+	g := newGitHub(t)
+	r := base(g)
+	latest := g.store(0, r).ID
+	old := r.IntentSHA256
+	g.issue.Body = "The CLI must keep the stored value across restarts."
+	live := boundary.BodyDigest(g.issue.Title + "\n" + g.issue.Body)
+	refused := func(want string, r boundary.Record) {
+		t.Helper()
+		posts := g.posts
+		if out, err := checkpoint(t, g, latest, r); err == nil || !strings.Contains(err.Error(), want) || out != "" || g.posts != posts {
+			t.Fatalf("output=%q error=%v, want refusal %q and no write", out, err, want)
+		}
+	}
+	refused("checkpoint phase blocked with the question as waiting", r)
+
+	question := g.artifact("The issue changed. Keep the recorded contract, or amend A1?")
+	r.Phase, r.Waiting = boundary.PhaseBlocked, &question
+	if _, err := checkpoint(t, g, latest, r); err != nil {
+		t.Fatalf("a blocked record on the recorded intent was refused: %v", err)
+	}
+	latest = g.nextID
+	if _, err := drive(t, g, fmt.Sprintf(`{"command":"assess","repo":"o/r","issue":1,"previous":%d}`, latest)); err == nil || !strings.Contains(err.Error(), "source issue changed") {
+		t.Fatalf("assess ran on a changed issue: %v", err)
+	}
+
+	decision := g.artifact("Owner: amend A1 to cover restarts.")
+	r.Phase, r.Waiting, r.Answer = boundary.PhaseActive, nil, &decision
+	r.IntentSHA256 = live
+	r.Acceptance = []boundary.Criterion{{ID: "A1", Requirement: "keep the stored value across restarts"}}
+	refused("pinned as a new contract_basis", r)
+	r.ContractBasis = &decision
+	r.IntentSHA256 = strings.Repeat("d", 64)
+	refused("does not match the source issue", r)
+	r.IntentSHA256 = live
+	out, err := checkpoint(t, g, latest, r)
+	if err != nil || !strings.Contains(out, `"intent_sha256":"`+live) || !strings.Contains(out, "across restarts") || strings.Contains(out, old) {
+		t.Fatalf("the amended contract did not land: %v %s", err, out)
+	}
+	latest = g.nextID
+
+	// The amended contract is frozen again, and work goes on under it.
+	r.Next = "implement the amended criterion"
+	if _, err := checkpoint(t, g, latest, r); err != nil {
+		t.Fatalf("work under the amended contract was refused: %v", err)
+	}
+	latest = g.nextID
+	r.Acceptance = []boundary.Criterion{{ID: "A1", Requirement: "weaker"}}
+	refused("pinned as a new contract_basis", r)
+	r.Acceptance = []boundary.Criterion{{ID: "A1", Requirement: "keep the stored value across restarts"}}
+	other := g.artifact("Not a contract decision.")
+	r.ContractBasis = &other
+	refused("contract_basis changes only in the checkpoint that amends", r)
 }
 
 func TestOwnerDecisionRecountsFailedRechecks(t *testing.T) {

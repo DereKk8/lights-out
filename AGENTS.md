@@ -42,7 +42,8 @@ A requirement that can be checked is enforced by an executable check, not by a p
 | Guarantee | Test |
 |---|---|
 | Acceptance needs exact-revision proof, a PASS receipt for the candidate, independent seats, the followed policy and a complete sync, resolved findings, accepted handoffs, and green required checks | `TestAssessRefusesUnsupportedAcceptance`, `TestAssessRecordsTheVerifiedOutcome`, `TestAssessVerifiesNoChangeOnTheDefaultBranch` |
-| The intent, the acceptance contract, and the coordinator and author stay fixed, and the re-check count falls only with a new owner basis | `TestCheckpointRefusesUnauthorizedChanges`, `TestOwnerDecisionRecountsFailedRechecks` |
+| The coordinator and author stay fixed, the intent and the acceptance contract change only with a new owner basis, and the re-check count falls only with one | `TestCheckpointRefusesUnauthorizedChanges`, `TestEditedIssueBecomesAnOwnerDecision`, `TestOwnerDecisionRecountsFailedRechecks` |
+| A blocked task pins its question, and leaves only with a pinned answer | `TestBlockedTaskPinsItsQuestionAndItsAnswer` |
 | A finding never leaves the record, and a closed finding changes only by reopening | `TestCheckpointKeepsEveryFinding`, `TestInspectRefusesABrokenHistory` |
 | Two failed re-checks stop the task in phase `blocked`, and a verified task reopens only with a pinned reason | `TestPhaseMovesAreNamed` |
 | A below-floor finding counts as resolved only with its own existing issue | `TestAssessAcceptsFiledBelowFloorFindings` |
